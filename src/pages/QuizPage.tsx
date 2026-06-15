@@ -49,7 +49,7 @@ export const QuizPage: React.FC = () => {
       try {
         const words = await db.words.toArray();
         const tags = new Set<string>();
-        words.forEach(w => w.tags.forEach(t => tags.add(t)));
+        words.forEach(w => (w.tags || []).forEach(t => tags.add(t)));
         setAllTags(Array.from(tags).sort());
       } catch (err) {
         console.error(currentLang === 'vi' ? "Lỗi khi tải tags:" : "Error loading tags:", err);
@@ -65,7 +65,7 @@ export const QuizPage: React.FC = () => {
     const updateCount = async () => {
       let allWords = await db.words.toArray();
       if (selectedTag && selectedTag !== 'all') {
-        allWords = allWords.filter(w => w.tags.includes(selectedTag));
+        allWords = allWords.filter(w => (w.tags || []).includes(selectedTag));
       }
       setTagWordCount(allWords.length);
     };
@@ -104,7 +104,7 @@ export const QuizPage: React.FC = () => {
 
     // Filter by selected tag if not 'all'
     if (selectedTag && selectedTag !== 'all' && (!customPool || customPool.length === 0)) {
-      allWords = allWords.filter(w => w.tags.includes(selectedTag));
+      allWords = allWords.filter(w => (w.tags || []).includes(selectedTag));
     }
     
     if (allWords.length < 4) {
@@ -581,7 +581,7 @@ export const QuizPage: React.FC = () => {
           
           {quiz.word.tags && quiz.word.tags.length > 0 && (
             <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 28 }}>
-              {quiz.word.tags.map(tag => (
+              {(quiz.word.tags || []).map(tag => (
                 <span key={tag} style={{ fontSize: 12, padding: '2px 10px', borderRadius: 12, background: 'rgba(99, 102, 241, 0.06)', color: '#6366f1', border: '1px solid rgba(99, 102, 241, 0.1)', fontWeight: 500 }}>
                   #{tag}
                 </span>

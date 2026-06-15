@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Form, Input, Button, Select, Card, Typography, message, Divider, Space, Modal } from 'antd';
+import { Form, Input, Button, Select, Card, Typography, message, Divider, Space, Modal, Switch } from 'antd';
 import { Save, CloudUpload, CloudDownload } from 'lucide-react';
 import { getSettings, saveSettings, useSettings, type Settings } from '../lib/settings';
 import { syncToGithub, syncFromGithub } from '../lib/github';
@@ -127,6 +127,10 @@ export const SettingsPage: React.FC = () => {
               <Option value="vi">Tiếng Việt (VI)</Option>
               <Option value="en">English (EN)</Option>
             </Select>
+          </Form.Item>
+
+          <Form.Item name="show_trigger_icon" label={translate('showTriggerIcon', currentLang)} valuePropName="checked" tooltip={translate('showTriggerIconDesc', currentLang)}>
+            <Switch />
           </Form.Item>
 
           <Divider />

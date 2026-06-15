@@ -32,13 +32,24 @@ export const GrammarManager: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      await deleteGrammarNote(id);
-      message.success(translate('deleteNoteSuccess', currentLang));
-    } catch (error) {
-      message.error(translate('deleteNoteFailed', currentLang));
-    }
+  const handleDelete = (id: string) => {
+    Modal.confirm({
+      title: currentLang === 'vi' ? 'Xác nhận xóa' : 'Confirm Delete',
+      content: currentLang === 'vi' ? 'Bạn có chắc chắn muốn xóa cấu trúc ngữ pháp này không?' : 'Are you sure you want to delete this grammar structure?',
+      okText: currentLang === 'vi' ? 'Xóa' : 'Delete',
+      okType: 'danger',
+      cancelText: currentLang === 'vi' ? 'Hủy' : 'Cancel',
+      okButtonProps: { style: { borderRadius: 8 } },
+      cancelButtonProps: { style: { borderRadius: 8 } },
+      onOk: async () => {
+        try {
+          await deleteGrammarNote(id);
+          message.success(translate('deleteNoteSuccess', currentLang));
+        } catch (error) {
+          message.error(translate('deleteNoteFailed', currentLang));
+        }
+      }
+    });
   };
 
   const columns = [
@@ -66,7 +77,7 @@ export const GrammarManager: React.FC = () => {
       key: 'tags',
       render: (tags: string[]) => (
         <>
-          {tags.map(tag => (
+          {(tags || []).map(tag => (
             <Tag color="magenta" key={tag}>
               #{tag}
             </Tag>

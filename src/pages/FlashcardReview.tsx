@@ -358,7 +358,7 @@ export const FlashcardReview: React.FC = () => {
               {currentWord.phonetic && <Text style={{ fontSize: '1.5rem', color: '#64748b', marginTop: 8 }}>{currentWord.phonetic}</Text>}
               {currentWord.tags && currentWord.tags.length > 0 && (
                 <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
-                  {currentWord.tags.map(tag => (
+                  {(currentWord.tags || []).map(tag => (
                     <Tag key={tag} color="geekblue" style={{ margin: 0, borderRadius: 12 }}>{tag}</Tag>
                   ))}
                 </div>
@@ -380,7 +380,7 @@ export const FlashcardReview: React.FC = () => {
                 </div>
               )}
               <div style={{ marginTop: 20, display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-                {currentWord.tags.map(tag => (
+                {(currentWord.tags || []).map(tag => (
                   <Tag key={tag} color={tag === 'it' || tag === 'tech' ? 'purple' : 'geekblue'} style={{ borderRadius: 16, padding: '4px 12px', border: 'none' }}>
                     #{tag}
                   </Tag>

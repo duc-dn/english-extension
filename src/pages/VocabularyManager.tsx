@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Table, Button, Tag, Space, Modal, Form, Input, message, Tooltip } from 'antd';
+import React, { useState, useMemo } from 'react';
+import { Table, Button, Tag, Space, Modal, Form, Input, message, Tooltip, Typography, Select } from 'antd';
 import { Plus, Trash2, Wand2, Volume2, Pencil } from 'lucide-react';
 import { db, addWord, type Word, deleteWord, updateWord } from '../lib/db';
 import { fetchBasicMeaning } from '../lib/translator';
@@ -7,6 +7,8 @@ import { playAudio } from '../lib/audio';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
+
+const { Paragraph } = Typography;
 
 export const VocabularyManager: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -21,6 +23,35 @@ export const VocabularyManager: React.FC = () => {
   
   // useLiveQuery from Dexie makes the component auto-update when IndexedDB changes
   const words = useLiveQuery(() => db.words.toArray()) || [];
+
+  const [searchText, setSearchText] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedStatus, setSelectedStatus] = useState<string | undefined>(undefined);
+
+  const allTags = useMemo(() => {
+    const tags = new Set<string>();
+    words.forEach(w => (w.tags || []).forEach(t => tags.add(t)));
+    return Array.from(tags).sort();
+  }, [words]);
+
+  const filteredWords = useMemo(() => {
+    return words.filter(word => {
+      const matchesSearch = !searchText.trim() || 
+        word.word.toLowerCase().includes(searchText.toLowerCase()) || 
+        word.meaning.toLowerCase().includes(searchText.toLowerCase()) ||
+        (word.description && word.description.toLowerCase().includes(searchText.toLowerCase()));
+      
+      const matchesTags = selectedTags.length === 0 || 
+        selectedTags.every(t => (word.tags || []).includes(t));
+        
+      const matchesStatus = !selectedStatus || 
+        (selectedStatus === 'new' && (word.status === 'new' || !word.status)) ||
+        (selectedStatus === 'learning' && (word.status === 'learning' || word.status === 'reviewing')) ||
+        (selectedStatus === 'mastered' && word.status === 'mastered');
+        
+      return matchesSearch && matchesTags && matchesStatus;
+    });
+  }, [words, searchText, selectedTags, selectedStatus]);
 
   const handleAddWord = async (values: { word: string; phonetic?: string; meaning: string; description?: string; example: string; tags: string }) => {
     try {
@@ -70,18 +101,29 @@ export const VocabularyManager: React.FC = () => {
       meaning: record.meaning,
       description: record.description || '',
       example: record.example,
-      tags: record.tags.join(', ')
+      tags: (record.tags || []).join(', ')
     });
     setIsEditModalOpen(true);
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      await deleteWord(id);
-      message.success(translate('deleteSuccess', currentLang));
-    } catch (error) {
-      message.error(translate('deleteFailed', currentLang));
-    }
+  const handleDelete = (id: string) => {
+    Modal.confirm({
+      title: currentLang === 'vi' ? 'Xác nhận xóa' : 'Confirm Delete',
+      content: currentLang === 'vi' ? 'Bạn có chắc chắn muốn xóa từ vựng này khỏi sổ từ không?' : 'Are you sure you want to delete this word from your vocabulary list?',
+      okText: currentLang === 'vi' ? 'Xóa' : 'Delete',
+      okType: 'danger',
+      cancelText: currentLang === 'vi' ? 'Hủy' : 'Cancel',
+      okButtonProps: { style: { borderRadius: 8 } },
+      cancelButtonProps: { style: { borderRadius: 8 } },
+      onOk: async () => {
+        try {
+          await deleteWord(id);
+          message.success(translate('deleteSuccess', currentLang));
+        } catch (error) {
+          message.error(translate('deleteFailed', currentLang));
+        }
+      }
+    });
   };
 
   const handleAutoFill = async () => {
@@ -127,7 +169,7 @@ export const VocabularyManager: React.FC = () => {
       title: translate('tableWord', currentLang),
       dataIndex: 'word',
       key: 'word',
-      width: '25%',
+      width: '15%',
       render: (text: string, record: Word) => (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -170,7 +212,7 @@ export const VocabularyManager: React.FC = () => {
     {
       title: translate('tableMeaning', currentLang),
       key: 'meaning_details',
-      width: '35%',
+      width: '25%',
       render: (_: any, record: Word) => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <strong style={{ fontSize: 15, color: '#8b5cf6' }}>{record.meaning}</strong>
@@ -195,7 +237,7 @@ export const VocabularyManager: React.FC = () => {
       title: translate('tableExample', currentLang),
       dataIndex: 'example',
       key: 'example',
-      width: '25%',
+      width: '30%',
       render: (text: string) => text ? (
         <div style={{ 
           fontSize: 13, 
@@ -206,7 +248,21 @@ export const VocabularyManager: React.FC = () => {
           paddingLeft: 12,
           borderLeft: '2px solid #cbd5e1'
         }}>
-          "{text}"
+          <Paragraph 
+            ellipsis={{ 
+              rows: 2, 
+              expandable: true, 
+              symbol: currentLang === 'vi' ? 'xem thêm' : 'more' 
+            }}
+            style={{ 
+              margin: 0, 
+              color: 'inherit', 
+              fontStyle: 'inherit',
+              fontSize: 'inherit'
+            }}
+          >
+            "{text}"
+          </Paragraph>
         </div>
       ) : <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>{translate('noExample', currentLang)}</span>,
     },
@@ -214,7 +270,7 @@ export const VocabularyManager: React.FC = () => {
       title: translate('tableTags', currentLang),
       dataIndex: 'tags',
       key: 'tags',
-      width: '15%',
+      width: '10%',
       render: (tags: string[]) => (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
           {tags.map(tag => {
@@ -244,8 +300,9 @@ export const VocabularyManager: React.FC = () => {
       title: translate('tableActions', currentLang),
       key: 'action',
       width: '10%',
+      align: 'center' as const,
       render: (_: any, record: Word) => (
-        <Space size="middle">
+        <Space size="middle" style={{ justifyContent: 'center', width: '100%' }}>
           <Tooltip title={currentLang === 'vi' ? 'Chỉnh sửa' : 'Edit'}>
             <Button 
               type="text" 
@@ -291,13 +348,54 @@ export const VocabularyManager: React.FC = () => {
       </div>
 
       <div className="glass-card" style={{ padding: 16 }}>
+        {/* Filter & Search Bar */}
+        <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Input 
+            placeholder={currentLang === 'vi' ? 'Tìm kiếm từ vựng hoặc nghĩa...' : 'Search word or meaning...'}
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            style={{ width: 250, borderRadius: 8 }}
+            allowClear
+          />
+          <Select
+            mode="multiple"
+            placeholder={currentLang === 'vi' ? 'Lọc theo thẻ (tags)...' : 'Filter by tags...'}
+            value={selectedTags}
+            onChange={setSelectedTags}
+            style={{ minWidth: 200, flex: 1, maxWidth: 400 }}
+            allowClear
+            maxTagCount="responsive"
+            dropdownStyle={{ borderRadius: 8 }}
+          >
+            {allTags.map(tag => (
+              <Select.Option key={tag} value={tag}>
+                #{tag}
+              </Select.Option>
+            ))}
+          </Select>
+          
+          <Select
+            placeholder={currentLang === 'vi' ? 'Trạng thái...' : 'Status...'}
+            value={selectedStatus}
+            onChange={setSelectedStatus}
+            style={{ width: 150 }}
+            allowClear
+            dropdownStyle={{ borderRadius: 8 }}
+          >
+            <Select.Option value="new">{translate('statusNew', currentLang)}</Select.Option>
+            <Select.Option value="learning">{translate('statusLearning', currentLang)}</Select.Option>
+            <Select.Option value="mastered">{translate('statusMastered', currentLang)}</Select.Option>
+          </Select>
+        </div>
+
         <Table 
-          dataSource={words} 
+          dataSource={filteredWords} 
           columns={columns} 
           rowKey="id" 
           pagination={{ pageSize: 8, showSizeChanger: false }}
           style={{ background: 'transparent' }}
           className="premium-table"
+          tableLayout="fixed"
         />
       </div>
 

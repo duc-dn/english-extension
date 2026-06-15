@@ -6,9 +6,9 @@ import {
   Volume2, Check, Trash2, Globe, Moon, Sun, 
   Sparkles, XCircle, ChevronRight, Plus, MessageSquare, ExternalLink
 } from 'lucide-react';
-import { fetchBasicMeaning, translateSentence, summarizeSentence, explainWord, sendChatMessage, extractGrammarNote } from '../lib/translator';
+import { fetchBasicMeaning, translateSentence, translateSentenceWithAI, summarizeSentence, explainWord, sendChatMessage, extractGrammarNote } from '../lib/translator';
 import type { ChatHistoryItem } from '../lib/translator';
-import { Input, Button, Tag, Progress, message, ConfigProvider, theme as antdTheme } from 'antd';
+import { Input, Button, Tag, Progress, message, ConfigProvider, Modal, theme as antdTheme, Select, Switch } from 'antd';
 import { saveSettings, useSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
 
@@ -43,7 +43,8 @@ export const CompactView: React.FC = () => {
 
   // Vocabulary search & filter states
   const [vocabSearch, setVocabSearch] = useState('');
-  const [vocabFilter, setVocabFilter] = useState<'all' | 'known' | 'review'>('all');
+  const [vocabFilter, setVocabFilter] = useState<'all' | 'new' | 'learning' | 'known' | 'review'>('all');
+  const [vocabSelectedTag, setVocabSelectedTag] = useState<string | undefined>(undefined);
 
   // Load settings via hook
   const settings = useSettings();
@@ -51,7 +52,10 @@ export const CompactView: React.FC = () => {
   const themeMode = settings.theme || 'light';
   const isSystemDark = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   const isDark = themeMode === 'dark' || (themeMode === 'system' && isSystemDark);
-  const isAiConfigured = settings.ai_provider === 'gemini' && !!settings.gemini_api_key;
+  const isAiConfigured = 
+    (settings.ai_provider === 'gemini' && !!settings.gemini_api_key) ||
+    (settings.ai_provider === 'openai' && !!settings.openai_api_key) ||
+    (settings.ai_provider === 'ollama' && !!settings.ollama_url);
 
   const colors = {
     bgBase: isDark ? '#0f121d' : '#f8fafc',
@@ -215,6 +219,26 @@ export const CompactView: React.FC = () => {
     await saveSettings({ theme: nextTheme });
   };
 
+  const confirmDeleteWord = (id: string) => {
+    Modal.confirm({
+      title: currentLang === 'vi' ? 'Xác nhận xóa' : 'Confirm Delete',
+      content: currentLang === 'vi' ? 'Bạn có chắc chắn muốn xóa từ vựng này khỏi sổ từ không?' : 'Are you sure you want to delete this word from your vocabulary list?',
+      okText: currentLang === 'vi' ? 'Xóa' : 'Delete',
+      okType: 'danger',
+      cancelText: currentLang === 'vi' ? 'Hủy' : 'Cancel',
+      okButtonProps: { style: { borderRadius: 8 } },
+      cancelButtonProps: { style: { borderRadius: 8 } },
+      onOk: async () => {
+        try {
+          await deleteWord(id);
+          message.success(translate('deleteSuccess', currentLang));
+        } catch (error) {
+          message.error(translate('deleteFailed', currentLang));
+        }
+      }
+    });
+  };
+
   const handleManualSearch = async () => {
     if (!manualQuery.trim()) return;
     setManualLoading(true);
@@ -291,13 +315,28 @@ export const CompactView: React.FC = () => {
     }
   };
 
-  // AI Translate Paragraph
-  const handleTranslateParagraph = async () => {
+  // AI Translate Paragraph (Free)
+  const handleTranslateParagraphFree = async () => {
     if (!selectedParagraph) return;
     setAiLoading(true);
     setAiMode('translation');
     try {
       const res = await translateSentence(selectedParagraph);
+      setAiResult(res);
+    } catch (err) {
+      setAiResult(currentLang === 'vi' ? 'Lỗi khi dịch đoạn văn.' : 'Error translating text.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  // AI Translate Paragraph (AI)
+  const handleTranslateParagraphAi = async () => {
+    if (!selectedParagraph) return;
+    setAiLoading(true);
+    setAiMode('translation');
+    try {
+      const res = await translateSentenceWithAI(selectedParagraph);
       setAiResult(res);
     } catch (err) {
       setAiResult(currentLang === 'vi' ? 'Lỗi khi dịch đoạn văn.' : 'Error translating text.');
@@ -519,13 +558,25 @@ export const CompactView: React.FC = () => {
   };
 
 
+  const allTags = React.useMemo(() => {
+    const tags = new Set<string>();
+    words.forEach(w => (w.tags || []).forEach(t => tags.add(t)));
+    return Array.from(tags).sort();
+  }, [words]);
+
   // Filter vocabulary list
   const filteredWords = words
     .filter(w => w.word.toLowerCase().includes(vocabSearch.toLowerCase()) || w.meaning.toLowerCase().includes(vocabSearch.toLowerCase()))
     .filter(w => {
       if (vocabFilter === 'known') return w.status === 'mastered' || w.review_level >= 4;
+      if (vocabFilter === 'new') return w.status === 'new' || (!w.status && w.review_level === 0);
+      if (vocabFilter === 'learning') return w.status === 'learning' || w.status === 'reviewing' || (w.review_level > 0 && w.review_level < 4 && w.status !== 'mastered');
       if (vocabFilter === 'review') return w.next_review && new Date(w.next_review) <= new Date() && w.status !== 'mastered';
       return true;
+    })
+    .filter(w => {
+      if (!vocabSelectedTag) return true;
+      return (w.tags || []).includes(vocabSelectedTag);
     });
 
   // Calculate statistics
@@ -576,37 +627,110 @@ export const CompactView: React.FC = () => {
                 </button>
               </div>
 
-              <div style={{ background: colors.bgLight, border: '1px solid ' + colors.border, padding: 12, borderRadius: 12, fontSize: '13px', color: colors.textMain, lineHeight: '1.5', maxHeight: '120px', overflowY: 'auto', fontStyle: 'italic' }}>
+              <div style={{ background: colors.bgLight, border: '1px solid ' + colors.border, padding: 12, borderRadius: 12, fontSize: '13px', color: colors.textMain, lineHeight: '1.5', maxHeight: '120px', overflowY: 'auto', fontStyle: 'italic', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                 "{selectedParagraph}"
               </div>
 
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button 
-                  type="primary" 
-                  icon={<Globe size={14} />} 
-                  onClick={handleTranslateParagraph}
-                  loading={aiLoading && aiMode === 'translation'}
-                  style={{ flex: 1, borderRadius: 8, height: 38, background: isDark ? '#1a1e35' : '#eff6ff', border: '1px solid ' + (isDark ? '#2e3b6d' : '#bfdbfe'), color: isDark ? '#60a5fa' : '#2563eb', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                >
-                  {translate('translateText', currentLang)}
-                </Button>
-                <Button 
-                  type="primary" 
-                  icon={<Sparkles size={14} />} 
-                  onClick={handleSummarizeParagraph}
-                  loading={aiLoading && aiMode === 'summary'}
-                  style={{ flex: 1, borderRadius: 8, height: 38, background: isDark ? '#162e2d' : '#ecfdf5', border: '1px solid ' + (isDark ? '#1c524e' : '#a7f3d0'), color: isDark ? '#2dd4bf' : '#059669', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                >
-                  {translate('summarizeText', currentLang)}
-                </Button>
-                <Button 
-                  type="primary" 
-                  icon={<MessageSquare size={14} />} 
-                  onClick={() => setActiveTab('aichat')}
-                  style={{ flex: 1, borderRadius: 8, height: 38, background: isDark ? '#1d1a35' : '#f5f3ff', border: '1px solid ' + (isDark ? '#4a2e6d' : '#ddd6fe'), color: isDark ? '#c084fc' : '#7c3aed', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                >
-                  {translate('btnChatAi', currentLang)}
-                </Button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {/* Row 1: Translations */}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button 
+                    type="primary" 
+                    icon={<Globe size={14} />} 
+                    onClick={handleTranslateParagraphFree}
+                    loading={aiLoading && aiMode === 'translation' && !isAiConfigured}
+                    style={{ flex: 1, borderRadius: 8, height: 38, background: isDark ? '#1a1e35' : '#eff6ff', border: '1px solid ' + (isDark ? '#2e3b6d' : '#bfdbfe'), color: isDark ? '#60a5fa' : '#2563eb', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                  >
+                    {translate('translateFree', currentLang)}
+                  </Button>
+                  <Button 
+                    type="primary" 
+                    icon={<Sparkles size={14} />} 
+                    onClick={handleTranslateParagraphAi}
+                    loading={aiLoading && aiMode === 'translation' && isAiConfigured}
+                    disabled={!isAiConfigured}
+                    style={{ 
+                      flex: 1, 
+                      borderRadius: 8, 
+                      height: 38, 
+                      background: !isAiConfigured 
+                        ? (isDark ? '#1e2235' : '#f1f5f9') 
+                        : (isDark ? 'rgba(139, 92, 246, 0.2)' : '#f5f3ff'), 
+                      border: '1px solid ' + (!isAiConfigured 
+                        ? (isDark ? '#25283b' : '#cbd5e1') 
+                        : (isDark ? 'rgba(139, 92, 246, 0.4)' : '#ddd6fe')), 
+                      color: !isAiConfigured 
+                        ? (isDark ? '#475569' : '#94a3b8') 
+                        : (isDark ? '#c084fc' : '#7c3aed'), 
+                      fontWeight: 600, 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      gap: 4 
+                    }}
+                  >
+                    {translate('translateAi', currentLang)}
+                  </Button>
+                </div>
+                
+                {/* Row 2: Summary and Chat */}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button 
+                    type="primary" 
+                    icon={<Sparkles size={14} />} 
+                    onClick={handleSummarizeParagraph}
+                    loading={aiLoading && aiMode === 'summary'}
+                    disabled={!isAiConfigured}
+                    style={{ 
+                      flex: 1, 
+                      borderRadius: 8, 
+                      height: 38, 
+                      background: !isAiConfigured 
+                        ? (isDark ? '#1e2235' : '#f1f5f9') 
+                        : (isDark ? '#162e2d' : '#ecfdf5'), 
+                      border: '1px solid ' + (!isAiConfigured 
+                        ? (isDark ? '#25283b' : '#cbd5e1') 
+                        : (isDark ? '#1c524e' : '#a7f3d0')), 
+                      color: !isAiConfigured 
+                        ? (isDark ? '#475569' : '#94a3b8') 
+                        : (isDark ? '#2dd4bf' : '#059669'), 
+                      fontWeight: 600, 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      gap: 4 
+                    }}
+                  >
+                    {translate('summarizeText', currentLang)}
+                  </Button>
+                  <Button 
+                    type="primary" 
+                    icon={<MessageSquare size={14} />} 
+                    onClick={() => setActiveTab('aichat')}
+                    disabled={!isAiConfigured}
+                    style={{ 
+                      flex: 1, 
+                      borderRadius: 8, 
+                      height: 38, 
+                      background: !isAiConfigured 
+                        ? (isDark ? '#1e2235' : '#f1f5f9') 
+                        : (isDark ? '#1d1a35' : '#f5f3ff'), 
+                      border: '1px solid ' + (!isAiConfigured 
+                        ? (isDark ? '#25283b' : '#cbd5e1') 
+                        : (isDark ? '#4a2e6d' : '#ddd6fe')), 
+                      color: !isAiConfigured 
+                        ? (isDark ? '#475569' : '#94a3b8') 
+                        : (isDark ? '#c084fc' : '#7c3aed'), 
+                      fontWeight: 600, 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      gap: 4 
+                    }}
+                  >
+                    {translate('btnChatAi', currentLang)}
+                  </Button>
+                </div>
               </div>
 
               {aiResult && (
@@ -632,15 +756,29 @@ export const CompactView: React.FC = () => {
                     value={qaQuery} 
                     onChange={e => setQaQuery(e.target.value)}
                     onPressEnter={handleQaSubmit}
-                    disabled={chatLoading}
+                    disabled={chatLoading || !isAiConfigured}
                     style={{ borderRadius: 8, height: 36, background: colors.bgContainer, border: '1px solid ' + colors.border, color: colors.textMain, fontSize: '13px' }} 
                   />
                   <Button 
                     type="primary" 
                     onClick={handleQaSubmit} 
                     loading={chatLoading}
-                    disabled={!qaQuery.trim()}
-                    style={{ height: 36, background: '#10b981', border: 'none', borderRadius: 8, color: '#ffffff', fontWeight: 600, fontSize: '13px' }}
+                    disabled={!qaQuery.trim() || !isAiConfigured}
+                    style={{ 
+                      height: 36, 
+                      background: !isAiConfigured
+                        ? (isDark ? '#1e2235' : '#f1f5f9')
+                        : '#10b981', 
+                      border: !isAiConfigured
+                        ? '1px solid ' + (isDark ? '#25283b' : '#cbd5e1')
+                        : 'none', 
+                      borderRadius: 8, 
+                      color: !isAiConfigured
+                        ? (isDark ? '#475569' : '#94a3b8')
+                        : '#ffffff', 
+                      fontWeight: 600, 
+                      fontSize: '13px' 
+                    }}
                   >
                     {translate('qaBtn', currentLang)}
                   </Button>
@@ -736,7 +874,7 @@ export const CompactView: React.FC = () => {
                 )}
 
                 <div style={{ borderTop: '1px solid ' + colors.border, paddingTop: 8 }}>
-                  <span style={{ fontSize: '10px', fontWeight: 800, color: colors.textMuted, letterSpacing: '0.5px' }}>{translate('meaningSec', currentLang)}</span>
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: colors.textMuted, letterSpacing: '0.5px' }}>{translate('meaningSec', currentLang)} (FREE)</span>
                   <div style={{ fontSize: '14px', fontWeight: 400, color: '#c084fc', marginTop: 2 }}>
                     {manualResult.vietnameseMeaning || 'Chưa tìm thấy bản dịch'}
                   </div>
@@ -768,8 +906,23 @@ export const CompactView: React.FC = () => {
                     type="default" 
                     onClick={handleWordAiSupport}
                     loading={wordExplanationLoading}
-                    icon={<Sparkles size={14} color="#60a5fa" />}
-                    style={{ flex: 1, height: 38, borderRadius: 8, borderColor: colors.border, background: colors.bgLight, color: '#60a5fa', fontWeight: 600 }}
+                    disabled={!isAiConfigured}
+                    icon={<Sparkles size={14} color={isAiConfigured ? "#60a5fa" : (isDark ? '#475569' : '#94a3b8')} />}
+                    style={{ 
+                      flex: 1, 
+                      height: 38, 
+                      borderRadius: 8, 
+                      borderColor: !isAiConfigured 
+                        ? (isDark ? '#25283b' : '#cbd5e1') 
+                        : colors.border, 
+                      background: !isAiConfigured 
+                        ? (isDark ? '#1e2235' : '#f1f5f9') 
+                        : colors.bgLight, 
+                      color: !isAiConfigured 
+                        ? (isDark ? '#475569' : '#94a3b8') 
+                        : '#60a5fa', 
+                      fontWeight: 600 
+                    }}
                   >
                     {translate('aiSupportBtn', currentLang)}
                   </Button>
@@ -818,37 +971,56 @@ export const CompactView: React.FC = () => {
               </div>
             </div>
 
-            {/* Search input */}
-            <div style={{ position: 'relative' }}>
+            {/* Search and Tag input */}
+            <div style={{ display: 'flex', gap: 6 }}>
               <Input 
                 placeholder={translate('vocabSearchPlaceholder', currentLang)} 
                 value={vocabSearch}
                 onChange={e => setVocabSearch(e.target.value)}
                 prefix={<Search size={14} color="#64748b" />}
-                style={{ borderRadius: 8, background: colors.bgContainer, border: '1px solid ' + colors.border, color: colors.textMain }}
+                style={{ flex: 1, borderRadius: 8, background: colors.bgContainer, border: '1px solid ' + colors.border, color: colors.textMain }}
               />
+              <Select
+                placeholder={currentLang === 'vi' ? 'Lọc thẻ...' : 'Tag...'}
+                value={vocabSelectedTag}
+                onChange={setVocabSelectedTag}
+                allowClear
+                style={{ width: 110 }}
+                dropdownStyle={{ borderRadius: 8 }}
+              >
+                {allTags.map(tag => (
+                  <Select.Option key={tag} value={tag}>
+                    #{tag}
+                  </Select.Option>
+                ))}
+              </Select>
             </div>
 
             {/* Filter buttons */}
-            <div style={{ display: 'flex', background: colors.bgContainer, padding: '3px', borderRadius: '8px', border: '1px solid ' + colors.border }}>
-              {(['all', 'known', 'review'] as const).map(f => (
+            <div style={{ display: 'flex', background: colors.bgContainer, padding: '3px', borderRadius: '8px', border: '1px solid ' + colors.border, flexWrap: 'wrap', gap: '2px' }}>
+              {(['all', 'new', 'learning', 'known', 'review'] as const).map(f => (
                 <button
                   key={f}
                   onClick={() => setVocabFilter(f)}
                   style={{
-                    flex: 1,
+                    flex: '1 1 auto',
                     border: 'none',
                     background: vocabFilter === f ? '#8b5cf6' : 'transparent',
                     color: vocabFilter === f ? '#ffffff' : colors.textMuted,
                     fontWeight: 700,
-                    fontSize: '11px',
-                    padding: '6px',
+                    fontSize: '10px',
+                    padding: '6px 4px',
                     borderRadius: '6px',
                     cursor: 'pointer',
-                    transition: 'all 0.15s'
+                    transition: 'all 0.15s',
+                    whiteSpace: 'nowrap'
                   }}
                 >
-                  {f === 'all' ? translate('filterAll', currentLang) : f === 'known' ? translate('filterMastered', currentLang) : translate('filterReview', currentLang)}
+                  {f === 'all' ? translate('filterAll', currentLang) :
+                   f === 'new' ? translate('statusNew', currentLang) :
+                   f === 'learning' ? (currentLang === 'vi' ? 'Đang học' : 'Learning') :
+                   f === 'known' ? translate('filterMastered', currentLang) : 
+                   translate('filterReview', currentLang)}
                 </button>
               ))}
             </div>
@@ -888,10 +1060,7 @@ export const CompactView: React.FC = () => {
                         size="small" 
                         danger
                         icon={<Trash2 size={12} />} 
-                        onClick={async () => {
-                          await deleteWord(word.id);
-                          message.success(translate('deleteSuccess', currentLang));
-                        }}
+                        onClick={() => confirmDeleteWord(word.id)}
                         style={{ background: 'rgba(239, 68, 68, 0.1)', width: 22, height: 22, padding: 0, borderRadius: 6 }}
                         title="Delete word"
                       />
@@ -1009,6 +1178,19 @@ export const CompactView: React.FC = () => {
                 <Tag color="purple" style={{ fontSize: '11px', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>
                   {translate('targetLangValue', currentLang)}
                 </Tag>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid ' + colors.borderLight, paddingTop: 12 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, paddingRight: 12 }}>
+                  <span style={{ fontWeight: 600, color: colors.textMain, fontSize: '13px' }}>{translate('showTriggerIcon', currentLang)}</span>
+                  <span style={{ color: colors.textMuted, fontSize: '11px', lineHeight: 1.3 }}>{translate('showTriggerIconDesc', currentLang)}</span>
+                </div>
+                <Switch 
+                  checked={settings.show_trigger_icon !== false} 
+                  onChange={async (checked) => {
+                    await saveSettings({ show_trigger_icon: checked });
+                  }} 
+                />
               </div>
             </div>
 

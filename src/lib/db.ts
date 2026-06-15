@@ -89,7 +89,7 @@ export async function getWordsToReview(tag?: string, includeMastered: boolean = 
     : words.filter(w => (w.status || 'new') !== 'mastered');
   
   if (tag && tag !== 'all') {
-    return filteredWords.filter(w => w.tags.includes(tag));
+    return filteredWords.filter(w => (w.tags || []).includes(tag));
   }
   return filteredWords;
 }
@@ -97,7 +97,7 @@ export async function getWordsToReview(tag?: string, includeMastered: boolean = 
 export async function getAllTags(): Promise<string[]> {
   const words = await db.words.toArray();
   const tags = new Set<string>();
-  words.forEach(w => w.tags.forEach(t => tags.add(t)));
+  words.forEach(w => (w.tags || []).forEach(t => tags.add(t)));
   return Array.from(tags).sort();
 }
 

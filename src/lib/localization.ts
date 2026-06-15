@@ -88,6 +88,8 @@ export const translations = {
     themeLight: 'Giao diện sáng',
     themeDark: 'Giao diện tối',
     uiLanguage: 'Ngôn ngữ giao diện',
+    showTriggerIcon: 'Hiện icon khi bôi đen từ',
+    showTriggerIconDesc: 'Hiển thị bong bóng icon nhỏ để tra cứu nhanh khi bôi đen một từ/cụm từ trên trang web.',
     aiProviderTitle: 'Nhà cung cấp dịch thuật AI',
     aiProviderDesc: 'Bật AI để nhận dịch nghĩa theo ngữ cảnh cho các từ tiếng Anh chuyên ngành.',
     selectProvider: 'Chọn nhà cung cấp',
@@ -113,6 +115,9 @@ export const translations = {
     pullConfirmContent: 'Thao tác này sẽ tải bản sao lưu từ GitHub và ghi đè/gộp vào dữ liệu từ vựng hiện có trên extension. Bạn có chắc chắn muốn tiếp tục?',
     saveSuccess: 'Lưu cài đặt thành công!',
     saveFailed: 'Lưu cài đặt thất bại.',
+    translateFree: 'Dịch (Free)',
+    translateAi: 'Dịch bằng AI ✨',
+    explainAiBtn: 'Giải nghĩa bằng AI ✨',
 
     // Flashcard Review Page
     reviewTitle: 'Ôn tập thẻ từ vựng (SRS)',
@@ -348,6 +353,8 @@ export const translations = {
     themeLight: 'Light Theme',
     themeDark: 'Dark Theme',
     uiLanguage: 'UI Language',
+    showTriggerIcon: 'Show icon on text selection',
+    showTriggerIconDesc: 'Show a small floating icon for quick lookup when text is selected on web pages.',
     aiProviderTitle: 'AI Translation Provider',
     aiProviderDesc: 'Enable AI to get context-aware translations for technical English words.',
     selectProvider: 'Select Provider',
@@ -373,6 +380,9 @@ export const translations = {
     pullConfirmContent: 'This will download the backup from GitHub and merge/overwrite it into your local vocabulary database. Are you sure you want to proceed?',
     saveSuccess: 'Settings saved successfully!',
     saveFailed: 'Failed to save settings.',
+    translateFree: 'Translate (Free)',
+    translateAi: 'Translate with AI ✨',
+    explainAiBtn: 'AI Explain ✨',
 
     // Flashcard Review Page
     reviewTitle: 'Vocabulary Review (SRS)',

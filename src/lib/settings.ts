@@ -8,6 +8,7 @@ export interface Settings {
   github_token?: string;
   theme: 'light' | 'dark' | 'system';
   language?: 'vi' | 'en';
+  show_trigger_icon?: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -20,6 +21,7 @@ const DEFAULT_SETTINGS: Settings = {
   github_token: '',
   theme: 'system',
   language: 'vi',
+  show_trigger_icon: true,
 };
 
 // Mock fallback for tests/local web dev

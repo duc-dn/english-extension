@@ -29,28 +29,8 @@ export async function fetchBasicMeaning(word: string): Promise<TranslationResult
       }
     }
 
-    // 2. Fetch Vietnamese translation (use Gemini if configured, otherwise fallback to MyMemory)
-    const settings = await getSettings();
+    // 2. Fetch Vietnamese translation (default to MyMemory for basic free translation)
     let vietnameseMeaning = '';
-
-    if (settings.ai_provider === 'gemini' && settings.gemini_api_key) {
-      try {
-        const model = settings.gemini_model || 'gemini-2.5-flash-lite';
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${settings.gemini_api_key}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: `Dịch từ/cụm từ tiếng Anh sau sang tiếng Việt (chỉ trả về nghĩa tiếng Việt chính xác và ngắn gọn nhất, cách nhau bằng dấu phẩy nếu có nhiều nghĩa, không thêm bất kỳ văn bản giải thích hay ký tự nào khác): "${word}"` }] }]
-          })
-        });
-        if (response.ok) {
-          const data = await response.json();
-          vietnameseMeaning = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-        }
-      } catch (err) {
-        console.error("Gemini basic translation failed, falling back:", err);
-      }
-    }
 
     // Fallback to MyMemory if Gemini didn't return a meaning
     if (!vietnameseMeaning) {
@@ -107,185 +87,265 @@ function runFallbackSummary(text: string): string {
   return `Đoạn văn quá ngắn hoặc không thể phân tích tóm tắt.`;
 }
 
-export async function translateSentence(text: string): Promise<string> {
+async function callAI(messages: { role: string; content: string }[], isJson = false): Promise<string> {
   const settings = await getSettings();
-  if (settings.ai_provider === 'gemini' && settings.gemini_api_key) {
+  const provider = settings.ai_provider;
+
+  if (provider === 'gemini') {
+    if (!settings.gemini_api_key) {
+      throw new Error('Gemini API Key is not configured.');
+    }
+    const model = settings.gemini_model || 'gemini-2.5-flash-lite';
+    
+    const systemMessage = messages.find(m => m.role === 'system');
+    const userAndModelMessages = messages.filter(m => m.role !== 'system');
+    const formattedContents = userAndModelMessages.map(m => ({
+      role: m.role === 'assistant' ? 'model' : m.role,
+      parts: [{ text: m.content }]
+    }));
+
+    const reqBody: any = {
+      contents: formattedContents
+    };
+    if (systemMessage) {
+      reqBody.systemInstruction = {
+        parts: [{ text: systemMessage.content }]
+      };
+    }
+
+    if (isJson) {
+      reqBody.generationConfig = {
+        responseMimeType: 'application/json'
+      };
+    }
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${settings.gemini_api_key}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(reqBody)
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    } else {
+      const errText = await response.text();
+      let msg = `Gemini API error (Status ${response.status})`;
+      try {
+        const parsed = JSON.parse(errText);
+        msg = parsed.error?.message || msg;
+      } catch (e) {}
+      throw new Error(msg);
+    }
+  }
+
+  if (provider === 'openai') {
+    if (!settings.openai_api_key) {
+      throw new Error('OpenAI API Key is not configured.');
+    }
+    const reqBody: any = {
+      model: 'gpt-4o-mini',
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content
+      }))
+    };
+    if (isJson) {
+      reqBody.response_format = { type: 'json_object' };
+    }
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${settings.openai_api_key}`
+      },
+      body: JSON.stringify(reqBody)
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return data.choices?.[0]?.message?.content || '';
+    } else {
+      const errText = await response.text();
+      let msg = `OpenAI API error (Status ${response.status})`;
+      try {
+        const parsed = JSON.parse(errText);
+        msg = parsed.error?.message || msg;
+      } catch (e) {}
+      throw new Error(msg);
+    }
+  }
+
+  if (provider === 'ollama') {
+    const url = settings.ollama_url || 'http://localhost:11434';
+    
+    // 1. Try to fetch the list of installed models, default to llama3 if unavailable
+    let model = 'llama3';
     try {
-      const model = settings.gemini_model || 'gemini-2.5-flash-lite';
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${settings.gemini_api_key}`, {
+      const tagsResponse = await fetch(`${url}/api/tags`);
+      if (tagsResponse.ok) {
+        const tagsData = await tagsResponse.json();
+        if (tagsData && tagsData.models && tagsData.models.length > 0) {
+          model = tagsData.models[0].name;
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to auto-detect Ollama model, defaulting to llama3:", e);
+    }
+
+    const reqBody: any = {
+      model,
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content
+      })),
+      stream: false
+    };
+    if (isJson) {
+      reqBody.format = 'json';
+    }
+
+    const response = await fetch(`${url}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(reqBody)
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return data.choices?.[0]?.message?.content || '';
+    } else {
+      // Fallback to /api/chat if /v1/chat/completions is not supported by older Ollama version
+      const legacyResponse = await fetch(`${url}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `Dịch câu/đoạn văn tiếng Anh sau sang tiếng Việt. Chỉ trả về kết quả dịch, không thêm giải thích hay ký tự khác: "${text}"` }] }]
+          model,
+          messages: messages.map(m => ({
+            role: m.role,
+            content: m.content
+          })),
+          stream: false
         })
       });
-      if (response.ok) {
-        const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+      if (legacyResponse.ok) {
+        const data = await legacyResponse.json();
+        return data.message?.content || '';
       }
-    } catch (err) {
-      console.error("Gemini translation failed:", err);
+      
+      const errText = await legacyResponse.text();
+      throw new Error(`Ollama API error: ${errText || legacyResponse.statusText}`);
     }
   }
+
+  throw new Error('No AI provider configured.');
+}
+
+function getMissingConfigMessage(settings: any, featureName: string): string | null {
+  const provider = settings.ai_provider;
+  if (provider === 'none' || provider === 'gemini') {
+    if (!settings.gemini_api_key) {
+      return `Vui lòng cấu hình Gemini API Key để sử dụng tính năng ${featureName}.`;
+    }
+  }
+  if (provider === 'openai') {
+    if (!settings.openai_api_key) {
+      return `Vui lòng cấu hình OpenAI API Key để sử dụng tính năng ${featureName}.`;
+    }
+  }
+  if (provider === 'ollama') {
+    if (!settings.ollama_url) {
+      return `Vui lòng cấu hình Ollama URL để sử dụng tính năng ${featureName}.`;
+    }
+  }
+  return null;
+}
+
+export async function translateSentence(text: string): Promise<string> {
   return runFallbackTranslation(text);
+}
+
+export async function translateSentenceWithAI(text: string): Promise<string> {
+  const settings = await getSettings();
+  const warning = getMissingConfigMessage(settings, 'dịch AI');
+  if (warning) return warning;
+  
+  try {
+    return await callAI([
+      { role: 'user', content: `Dịch câu/đoạn văn tiếng Anh sau sang tiếng Việt. Chỉ trả về kết quả dịch, không thêm giải thích hay ký tự khác: "${text}"` }
+    ]);
+  } catch (err: any) {
+    console.error("AI translation failed:", err);
+    return `[Lỗi AI] ${err.message || err}`;
+  }
 }
 
 export async function summarizeSentence(text: string): Promise<string> {
   const settings = await getSettings();
-  
-  // If Gemini key is set, use it
-  if (settings.ai_provider === 'gemini' && settings.gemini_api_key) {
-    try {
-      const model = settings.gemini_model || 'gemini-2.5-flash-lite';
-      console.log(`[Gemini] Summarizing with API Key: ${settings.gemini_api_key.substring(0, 6)}... using model: ${model}`);
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${settings.gemini_api_key}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: `Tóm tắt ngắn gọn khoảng 1-2 câu nội dung chính của đoạn văn tiếng Anh sau bằng tiếng Việt. Chỉ trả về kết quả tóm tắt: "${text}"` }] }]
-        })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      } else {
-        const errText = await response.text();
-        console.error("Gemini summary API error:", response.status, errText);
-        let detail = response.statusText;
-        try {
-          const parsed = JSON.parse(errText);
-          detail = parsed.error?.message || detail;
-        } catch (e) {}
-
-        if (response.status === 429) {
-          const lang = settings.language || 'vi';
-          message.warning(
-            lang === 'vi' 
-              ? 'Lượt dùng Gemini bị giới hạn (429). Đang tóm tắt bằng công cụ đơn giản!' 
-              : 'Gemini rate limit exceeded (429). Falling back to simple summary!'
-          );
-          return runFallbackSummary(text);
-        }
-
-        return `[Lỗi Gemini API] Mã lỗi ${response.status}: ${detail}. Vui lòng kiểm tra lại API Key trong phần Cài đặt.`;
-      }
-    } catch (err: any) {
-      console.error("Gemini summary failed:", err);
-      return `[Lỗi kết nối Gemini] ${err.message || err}`;
-    }
+  if (settings.ai_provider === 'none') {
+    return runFallbackSummary(text);
   }
+  
+  try {
+    return await callAI([
+      { role: 'user', content: `Tóm tắt ngắn gọn khoảng 1-2 câu nội dung chính của đoạn văn tiếng Anh sau bằng tiếng Việt. Chỉ trả về kết quả tóm tắt: "${text}"` }
+    ]);
+  } catch (err: any) {
+    console.error("AI summary failed:", err);
+    
+    if (err.message && err.message.includes('429')) {
+      const lang = settings.language || 'vi';
+      message.warning(
+        lang === 'vi' 
+          ? 'Lượt dùng AI bị giới hạn (429). Đang tóm tắt bằng công cụ đơn giản!' 
+          : 'AI rate limit exceeded (429). Falling back to simple summary!'
+      );
+      return runFallbackSummary(text);
+    }
 
-  return runFallbackSummary(text);
+    return `[Lỗi AI] ${err.message || err}`;
+  }
 }
 
 export async function explainWord(word: string, definition?: string): Promise<string> {
   const settings = await getSettings();
-  
-  if (settings.ai_provider === 'gemini' && settings.gemini_api_key) {
-    try {
-      const model = settings.gemini_model || 'gemini-2.5-flash-lite';
-      console.log(`[Gemini] Explaining word with API Key: ${settings.gemini_api_key.substring(0, 6)}... using model: ${model}`);
-      const prompt = `Giải thích từ tiếng Anh sau: "${word}"${definition ? ` (định nghĩa tiếng Anh: "${definition}")` : ''}.
+  const warning = getMissingConfigMessage(settings, 'giải thích từ AI');
+  if (warning) return warning;
+
+  try {
+    const prompt = `Giải thích từ tiếng Anh sau: "${word}"${definition ? ` (định nghĩa tiếng Anh: "${definition}")` : ''}.
 Hãy cung cấp các thông tin sau bằng tiếng Việt:
 1. Nghĩa tiếng Việt chính xác và hoàn cảnh sử dụng.
 2. 2-3 từ đồng nghĩa hoặc cụm từ liên quan.
 3. Một ví dụ tiếng Anh ngắn kèm dịch nghĩa tiếng Việt.
 Trả về định dạng rõ ràng, ngắn gọn và dễ hiểu.`;
-      
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${settings.gemini_api_key}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }]
-        })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      } else {
-        const errText = await response.text();
-        console.error("Gemini explainWord API error:", response.status, errText);
-        let detail = response.statusText;
-        try {
-          const parsed = JSON.parse(errText);
-          detail = parsed.error?.message || detail;
-        } catch (e) {}
-
-        if (response.status === 429) {
-          const lang = settings.language || 'vi';
-          message.warning(
-            lang === 'vi' 
-              ? 'Lượt dùng Gemini bị giới hạn (429). Giải nghĩa từ AI tạm thời không khả dụng.' 
-              : 'Gemini rate limit exceeded (429). AI word explanation is temporarily unavailable.'
-          );
-          return lang === 'vi' 
-            ? 'Lượt dùng Gemini bị giới hạn (429). Vui lòng thử lại sau.' 
-            : 'Gemini rate limit exceeded (429). Please try again later.';
-        }
-
-        return `[Lỗi Gemini API] Mã lỗi ${response.status}: ${detail}. Vui lòng kiểm tra lại API Key trong phần Cài đặt.`;
-      }
-    } catch (err: any) {
-      console.error("Gemini explainWord failed:", err);
-      return `[Lỗi kết nối Gemini] ${err.message || err}`;
-    }
+    
+    return await callAI([{ role: 'user', content: prompt }]);
+  } catch (err: any) {
+    console.error("AI explainWord failed:", err);
+    return `[Lỗi AI] ${err.message || err}`;
   }
-  return 'Vui lòng cấu hình Gemini API Key để sử dụng tính năng giải thích từ AI.';
 }
 
 export async function askAboutSentence(text: string, question: string): Promise<string> {
   const settings = await getSettings();
-  
-  if (settings.ai_provider === 'gemini' && settings.gemini_api_key) {
-    try {
-      const model = settings.gemini_model || 'gemini-2.5-flash-lite';
-      console.log(`[Gemini] QA with API Key: ${settings.gemini_api_key.substring(0, 6)}... using model: ${model}`);
-      const prompt = `Tôi có đoạn văn/câu tiếng Anh sau:
+  const warning = getMissingConfigMessage(settings, 'hỏi đáp AI');
+  if (warning) return warning;
+
+  try {
+    const prompt = `Tôi có đoạn văn/câu tiếng Anh sau:
 "${text}"
 
 Câu hỏi của tôi là: "${question}"
 
 Hãy trả lời câu hỏi trên bằng tiếng Việt một cách chi tiết, giải thích cụ thể về mặt ngữ pháp, cấu trúc câu, từ vựng hoặc lý do chọn loại từ/thì tương tự như câu tôi đã hỏi. Trả về định dạng rõ ràng, ngắn gọn và dễ hiểu.`;
-      
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${settings.gemini_api_key}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }]
-        })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      } else {
-        const errText = await response.text();
-        console.error("Gemini QA API error:", response.status, errText);
-        let detail = response.statusText;
-        try {
-          const parsed = JSON.parse(errText);
-          detail = parsed.error?.message || detail;
-        } catch (e) {}
-
-        if (response.status === 429) {
-          const lang = settings.language || 'vi';
-          message.warning(
-            lang === 'vi' 
-              ? 'Lượt dùng Gemini bị giới hạn (429). Hỏi đáp AI tạm thời không khả dụng.' 
-              : 'Gemini rate limit exceeded (429). AI Q&A is temporarily unavailable.'
-          );
-          return lang === 'vi' 
-            ? 'Lượt dùng Gemini bị giới hạn (429). Vui lòng thử lại sau.' 
-            : 'Gemini rate limit exceeded (429). Please try again later.';
-        }
-
-        return `[Lỗi Gemini API] Mã lỗi ${response.status}: ${detail}. Vui lòng kiểm tra lại API Key trong phần Cài đặt.`;
-      }
-    } catch (err: any) {
-      console.error("Gemini QA failed:", err);
-      return `[Lỗi kết nối Gemini] ${err.message || err}`;
-    }
+    
+    return await callAI([{ role: 'user', content: prompt }]);
+  } catch (err: any) {
+    console.error("AI QA failed:", err);
+    return `[Lỗi AI] ${err.message || err}`;
   }
-  return 'Vui lòng cấu hình Gemini API Key để sử dụng tính năng hỏi đáp AI.';
 }
 
 export interface ChatHistoryItem {
@@ -295,75 +355,30 @@ export interface ChatHistoryItem {
 
 export async function sendChatMessage(contextSentence: string, history: ChatHistoryItem[]): Promise<string> {
   const settings = await getSettings();
-  
-  if (settings.ai_provider === 'gemini' && settings.gemini_api_key) {
-    try {
-      const model = settings.gemini_model || 'gemini-2.5-flash-lite';
-      console.log(`[Gemini] Chat with API Key: ${settings.gemini_api_key.substring(0, 6)}... using model: ${model}`);
-      
-      const contents = [];
-      
-      // 1. Prepend the system & context prompt
-      const systemPrompt = contextSentence 
-        ? `Tôi đang tự học tiếng Anh và đang đọc câu này: "${contextSentence}". Hãy đóng vai là một giáo viên dạy tiếng Anh nhiệt tình, giỏi ngữ pháp và cấu trúc câu. Giúp tôi giải đáp các câu hỏi học tập, phân tích thì, từ vựng hoặc cấu trúc câu dựa trên câu này hoặc các câu hỏi tiếng Anh bất kỳ khác của tôi.`
-        : `Hãy đóng vai là một giáo viên dạy tiếng Anh nhiệt tình, giỏi ngữ pháp và cấu trúc câu. Giúp tôi giải đáp mọi thắc mắc học tập về ngữ pháp, từ vựng, phát âm, dịch thuật, viết lại câu hoặc phân tích cấu trúc ngữ pháp.`;
-        
-      contents.push({
-        role: 'user',
-        parts: [{ text: systemPrompt }]
-      });
-      
-      contents.push({
-        role: 'model',
-        parts: [{ text: 'Chào bạn! Mình là giáo viên trợ lý tiếng Anh AI của bạn. Hãy gửi cho mình bất kỳ câu hỏi nào về từ vựng, ngữ pháp, dịch thuật hoặc phân tích câu nhé! Mình sẵn sàng hỗ trợ bạn.' }]
-      });
-      
-      // 2. Map conversation history turns
-      history.forEach(msg => {
-        contents.push({
-          role: msg.sender === 'user' ? 'user' : 'model',
-          parts: [{ text: msg.text }]
-        });
-      });
-      
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${settings.gemini_api_key}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents })
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      } else {
-        const errText = await response.text();
-        console.error("Gemini Chat API error:", response.status, errText);
-        let detail = response.statusText;
-        try {
-          const parsed = JSON.parse(errText);
-          detail = parsed.error?.message || detail;
-        } catch (e) {}
+  const warning = getMissingConfigMessage(settings, 'Chat AI');
+  if (warning) return warning;
 
-        if (response.status === 429) {
-          const lang = settings.language || 'vi';
-          message.warning(
-            lang === 'vi'
-              ? 'Lượt dùng Gemini bị giới hạn (429). Chat AI tạm thời không khả dụng.'
-              : 'Gemini rate limit exceeded (429). AI Chat is temporarily unavailable.'
-          );
-          return lang === 'vi' 
-            ? 'Lượt dùng Gemini bị giới hạn (429). Vui lòng thử lại sau.' 
-            : 'Gemini rate limit exceeded (429). Please try again later.';
-        }
+  try {
+    const systemPrompt = contextSentence 
+      ? `Tôi đang tự học tiếng Anh và đang đọc câu này: "${contextSentence}". Hãy đóng vai là một giáo viên dạy tiếng Anh nhiệt tình, giỏi ngữ pháp và cấu trúc câu. Giúp tôi giải đáp các câu hỏi học tập, phân tích thì, từ vựng hoặc cấu trúc câu dựa trên câu này hoặc các câu hỏi tiếng Anh bất kỳ khác của tôi.`
+      : `Hãy đóng vai là một giáo viên dạy tiếng Anh nhiệt tình, giỏi ngữ pháp và cấu trúc câu. Giúp tôi giải đáp mọi thắc mắc học tập về ngữ pháp, từ vựng, phát âm, dịch thuật, viết lại câu hoặc phân tích cấu trúc ngữ pháp.`;
+      
+    const messages = [];
+    messages.push({ role: 'system', content: systemPrompt });
+    messages.push({ role: 'assistant', content: 'Chào bạn! Mình là giáo viên trợ lý tiếng Anh AI của bạn. Hãy gửi cho mình bất kỳ câu hỏi nào về từ vựng, ngữ pháp, dịch thuật hoặc phân tích câu nhé! Mình sẵn sàng hỗ trợ bạn.' });
+    
+    history.forEach(msg => {
+      messages.push({
+        role: msg.sender === 'user' ? 'user' : 'assistant',
+        content: msg.text
+      });
+    });
 
-        return `[Lỗi Gemini API] Mã lỗi ${response.status}: ${detail}. Vui lòng kiểm tra lại API Key trong phần Cài đặt.`;
-      }
-    } catch (err: any) {
-      console.error("Gemini Chat failed:", err);
-      return `[Lỗi kết nối Gemini] ${err.message || err}`;
-    }
+    return await callAI(messages);
+  } catch (err: any) {
+    console.error("AI Chat failed:", err);
+    return `[Lỗi AI] ${err.message || err}`;
   }
-  return 'Vui lòng cấu hình Gemini API Key để sử dụng tính năng Chat AI.';
 }
 
 export interface ExtractedGrammar {
@@ -375,13 +390,11 @@ export interface ExtractedGrammar {
 
 export async function extractGrammarNote(aiResponseText: string): Promise<ExtractedGrammar | null> {
   const settings = await getSettings();
-  
-  if (settings.ai_provider === 'gemini' && settings.gemini_api_key) {
-    try {
-      const model = settings.gemini_model || 'gemini-2.5-flash-lite';
-      console.log(`[Gemini] Extracting grammar with model: ${model}`);
-      
-      const prompt = `Phân tích phần giải thích cấu trúc ngữ pháp sau đây của giáo viên tiếng Anh:
+  if (settings.ai_provider === 'none') {
+    return null;
+  }
+  try {
+    const prompt = `Phân tích phần giải thích cấu trúc ngữ pháp sau đây của giáo viên tiếng Anh:
 "${aiResponseText}"
 
 Hãy trích xuất thông tin ngữ pháp cốt lõi và trả về DUY NHẤT một đối tượng JSON có định dạng chính xác sau (không chứa markdown wrap \`\`\`json hay bất kỳ ký tự thừa nào ngoài JSON):
@@ -392,40 +405,18 @@ Hãy trích xuất thông tin ngữ pháp cốt lõi và trả về DUY NHẤT m
   "tags": ["danh sách 2-3 thẻ tag phân loại liên quan dưới dạng tiếng Anh viết liền không dấu, ví dụ: tense, comparison, modal-verb"]
 }`;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${settings.gemini_api_key}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }]
-        })
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        const jsonText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-        const parsed = JSON.parse(jsonText);
-        return {
-          title: parsed.title || 'Grammar Note',
-          content: parsed.content || '',
-          example: parsed.example || '',
-          tags: Array.isArray(parsed.tags) ? parsed.tags : []
-        };
-      } else {
-        if (response.status === 429) {
-          const lang = settings.language || 'vi';
-          message.warning(
-            lang === 'vi'
-              ? 'Lượt dùng Gemini bị giới hạn (429). Không thể tự động trích xuất ngữ pháp.'
-              : 'Gemini rate limit exceeded (429). Cannot extract grammar structure.'
-          );
-        }
-        console.error("Gemini Extract Grammar API error:", response.status, await response.text());
-      }
-    } catch (err) {
-      console.error("Gemini Extract Grammar failed:", err);
-    }
+    const rawText = await callAI([{ role: 'user', content: prompt }], true);
+    const jsonText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(jsonText);
+    return {
+      title: parsed.title || 'Grammar Note',
+      content: parsed.content || '',
+      example: parsed.example || '',
+      tags: Array.isArray(parsed.tags) ? parsed.tags : []
+    };
+  } catch (err) {
+    console.error("AI Extract Grammar failed:", err);
+    return null;
   }
-  return null;
 }
 
