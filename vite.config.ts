@@ -17,7 +17,7 @@ const manifest = defineManifest({
   action: {
     default_popup: 'index.html',
   },
-  permissions: ['storage', 'activeTab', 'scripting', 'contextMenus', 'sidePanel'],
+  permissions: ['storage', 'activeTab', 'scripting', 'contextMenus', 'sidePanel', 'nativeMessaging', 'declarativeNetRequest'],
   host_permissions: ['<all_urls>'],
   background: {
     service_worker: 'src/background.ts',
@@ -48,6 +48,9 @@ export default defineConfig({
     react(),
     crx({ manifest }),
   ],
+  build: {
+    chunkSizeWarningLimit: 1000,
+  },
   test: {
     environment: 'jsdom',
     globals: true,

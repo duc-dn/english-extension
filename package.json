@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "chatgpt:companion": "node companion/server.mjs",
+    "chatgpt:install-host": "node companion/install-native-host.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.5",

@@ -8,16 +8,25 @@ import { translate } from '../lib/localization';
 
 const { Title, Text } = Typography;
 
+function localDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export const Dashboard: React.FC = () => {
   const [totalWords, setTotalWords] = useState(0);
   const [wordsToReview, setWordsToReview] = useState(0);
-  const [activityData, setActivityData] = useState<any[]>([]);
+  const [activityData, setActivityData] = useState<{ date: string; count: number; level: number }[]>([]);
   const [streak, setStreak] = useState(0);
+  const [todayReviews, setTodayReviews] = useState(0);
   const [missedWords, setMissedWords] = useState<Word[]>([]);
   const [masteryStats, setMasteryStats] = useState({ new: 0, learning: 0, reviewing: 0, mastered: 0, total: 0 });
 
   const settings = useSettings();
   const currentLang = settings.language || 'vi';
+  const dailyGoal = Math.max(1, Math.min(100, settings.daily_review_goal ?? 10));
 
   useEffect(() => {
     const fetchData = async () => {
@@ -33,35 +42,36 @@ export const Dashboard: React.FC = () => {
       // Generate activity data
       const words = await db.words.toArray();
       const reviews = await db.review_history.toArray();
+      setTodayReviews(reviews.filter(review => localDateKey(review.reviewed_at) === localDateKey(new Date())).length);
 
       const counts: Record<string, number> = {};
 
       words.forEach(w => {
-        const dateStr = w.created_at.toISOString().split('T')[0];
+        const dateStr = localDateKey(w.created_at);
         counts[dateStr] = (counts[dateStr] || 0) + 1;
       });
 
       reviews.forEach(r => {
-        const dateStr = r.reviewed_at.toISOString().split('T')[0];
+        const dateStr = localDateKey(r.reviewed_at);
         counts[dateStr] = (counts[dateStr] || 0) + 1;
       });
 
       // Calculate Current Streak
       let currentStreak = 0;
       const checkDate = new Date();
-      let dStr = checkDate.toISOString().split('T')[0];
+      let dStr = localDateKey(checkDate);
       
       if (counts[dStr] > 0) currentStreak++;
       
       checkDate.setDate(checkDate.getDate() - 1);
-      dStr = checkDate.toISOString().split('T')[0];
+      dStr = localDateKey(checkDate);
       
       if (counts[dStr] > 0 || currentStreak > 0) {
         while (true) {
           if (counts[dStr] > 0) {
             currentStreak++;
             checkDate.setDate(checkDate.getDate() - 1);
-            dStr = checkDate.toISOString().split('T')[0];
+            dStr = localDateKey(checkDate);
           } else {
             break;
           }
@@ -78,7 +88,7 @@ export const Dashboard: React.FC = () => {
       for (let i = 365; i >= 0; i--) {
         const d = new Date(today);
         d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0];
+        const dateStr = localDateKey(d);
         const count = counts[dateStr] || 0;
         
         let level = 0;
@@ -150,6 +160,21 @@ export const Dashboard: React.FC = () => {
           </Card>
         </Col>
       </Row>
+
+      <Card className="glass-card" bordered={false}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+          <Text strong style={{ fontSize: 16 }}>
+            {currentLang === 'vi' ? 'Mục tiêu ôn tập hôm nay' : "Today's review goal"}
+          </Text>
+          <Text>{todayReviews} / {dailyGoal} {currentLang === 'vi' ? 'lượt ôn' : 'reviews'}</Text>
+        </div>
+        <Progress percent={Math.min(100, Math.round(todayReviews / dailyGoal * 100))} strokeColor="#8b5cf6" />
+        <Text type="secondary">
+          {todayReviews >= dailyGoal
+            ? (currentLang === 'vi' ? 'Bạn đã hoàn thành mục tiêu hôm nay.' : 'You reached your goal today.')
+            : (currentLang === 'vi' ? `Còn ${dailyGoal - todayReviews} lượt ôn để đạt mục tiêu.` : `${dailyGoal - todayReviews} reviews to reach your goal.`)}
+        </Text>
+      </Card>
 
       {/* Mastery Stats Section */}
       <div>
@@ -250,7 +275,7 @@ export const Dashboard: React.FC = () => {
                 labels={{
                   totalCount: currentLang === 'vi' ? '{{count}} hoạt động trong năm qua' : '{{count}} activities in the past year',
                 }}
-                renderBlock={(block: any, activity: any) => (
+                renderBlock={(block, activity) => (
                   <Tooltip title={currentLang === 'vi' 
                     ? `${activity.count} hoạt động vào ngày ${activity.date}` 
                     : `${activity.count} activities on ${activity.date}`}>

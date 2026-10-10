@@ -11,13 +11,15 @@ describe('English Extension Settings (chrome.storage mock)', () => {
     const settings = await getSettings();
     expect(settings.ai_provider).toBe('none');
     expect(settings.theme).toBe('system');
+    expect(settings.daily_review_goal).toBe(10);
   });
 
   it('should save and retrieve settings correctly', async () => {
     const newSettings: Partial<Settings> = {
       ai_provider: 'gemini',
       gemini_api_key: 'test_key_123',
-      theme: 'dark'
+      theme: 'dark',
+      daily_review_goal: 15
     };
 
     await saveSettings(newSettings);
@@ -26,6 +28,7 @@ describe('English Extension Settings (chrome.storage mock)', () => {
     expect(settings.ai_provider).toBe('gemini');
     expect(settings.gemini_api_key).toBe('test_key_123');
     expect(settings.theme).toBe('dark');
+    expect(settings.daily_review_goal).toBe(15);
   });
 
   it('should merge partial updates with existing settings', async () => {

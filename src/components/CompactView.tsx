@@ -55,6 +55,7 @@ export const CompactView: React.FC = () => {
   const isAiConfigured = 
     (settings.ai_provider === 'gemini' && !!settings.gemini_api_key) ||
     (settings.ai_provider === 'openai' && !!settings.openai_api_key) ||
+    (settings.ai_provider === 'chatgpt_web') ||
     (settings.ai_provider === 'ollama' && !!settings.ollama_url);
 
   const colors = {

@@ -1,14 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Table, Button, Tag, Space, Modal, Form, Input, message, Tooltip, Typography, Select } from 'antd';
-import { Plus, Trash2, Wand2, Volume2, Pencil } from 'lucide-react';
-import { db, addWord, type Word, deleteWord, updateWord } from '../lib/db';
+import { Plus, Trash2, Wand2, Volume2, Pencil, Download, Upload, Mic, ExternalLink } from 'lucide-react';
+import { db, addWord, type Word, deleteWord, updateWord, importWords, DuplicateWordError } from '../lib/db';
+import { buildVocabularyCsv, parseVocabularyCsv } from '../lib/vocabularyCsv';
 import { fetchBasicMeaning } from '../lib/translator';
 import { playAudio } from '../lib/audio';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
+import { VoiceRecognitionService, evaluatePronunciation, type PronunciationScore } from '../lib/speechRecognition';
 
 const { Paragraph } = Typography;
+const EMPTY_WORDS: Word[] = [];
 
 export const VocabularyManager: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -17,12 +20,49 @@ export const VocabularyManager: React.FC = () => {
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
   const [isAutoFilling, setIsAutoFilling] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  // Speaking state
+  const [speakingWord, setSpeakingWord] = useState<string | null>(null);
+  const [speakingResult, setSpeakingResult] = useState<PronunciationScore | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const voiceServiceRef = useRef<VoiceRecognitionService | null>(null);
+
+  useEffect(() => {
+    voiceServiceRef.current = new VoiceRecognitionService();
+  }, []);
+
+  const handleTestPronunciation = (word: string) => {
+    if (!voiceServiceRef.current || !voiceServiceRef.current.isSupported()) {
+      message.warning('Trình duyệt chưa hỗ trợ Web Speech API.');
+      return;
+    }
+    setSpeakingWord(word);
+    setSpeakingResult(null);
+    setIsListening(true);
+
+    voiceServiceRef.current.startListening(
+      (transcript) => {
+        const evalRes = evaluatePronunciation(word, transcript, settings.language || 'vi');
+        setSpeakingResult(evalRes);
+        setIsListening(false);
+      },
+      (err) => {
+        console.warn(err);
+        setIsListening(false);
+      },
+      () => {
+        setIsListening(false);
+      }
+    );
+  };
 
   const settings = useSettings();
   const currentLang = settings.language || 'vi';
   
   // useLiveQuery from Dexie makes the component auto-update when IndexedDB changes
-  const words = useLiveQuery(() => db.words.toArray()) || [];
+  const words = useLiveQuery(() => db.words.toArray()) ?? EMPTY_WORDS;
 
   const [searchText, setSearchText] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -53,6 +93,41 @@ export const VocabularyManager: React.FC = () => {
     });
   }, [words, searchText, selectedTags, selectedStatus]);
 
+  const handleExport = () => {
+    const csv = buildVocabularyCsv(words);
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `english-vocabulary-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const handleImport = async (file?: File) => {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      message.error(currentLang === 'vi' ? 'Tệp CSV phải nhỏ hơn 5 MB.' : 'CSV file must be under 5 MB.');
+      return;
+    }
+    setIsImporting(true);
+    try {
+      const { words: imported, skipped } = parseVocabularyCsv(await file.text());
+      const { added, duplicates } = await importWords(imported);
+      message.success(currentLang === 'vi'
+        ? `Đã nhập ${added} từ. Bỏ qua ${duplicates} từ trùng và ${skipped} dòng thiếu dữ liệu.`
+        : `Imported ${added} words. Skipped ${duplicates} duplicates and ${skipped} incomplete rows.`);
+    } catch (error) {
+      message.error(currentLang === 'vi'
+        ? `Không thể nhập CSV: ${error instanceof Error ? error.message : 'Tệp không hợp lệ.'}`
+        : `Could not import CSV: ${error instanceof Error ? error.message : 'Invalid file.'}`);
+    } finally {
+      setIsImporting(false);
+      if (importInputRef.current) importInputRef.current.value = '';
+    }
+  };
+
   const handleAddWord = async (values: { word: string; phonetic?: string; meaning: string; description?: string; example: string; tags: string }) => {
     try {
       const tagList = values.tags ? values.tags.split(',').map(t => t.trim()) : [];
@@ -68,7 +143,9 @@ export const VocabularyManager: React.FC = () => {
       setIsModalOpen(false);
       form.resetFields();
     } catch (error) {
-      message.error(translate('addFailed', currentLang));
+      message.error(error instanceof DuplicateWordError
+        ? (currentLang === 'vi' ? 'Từ này đã có trong sổ từ.' : 'This word is already saved.')
+        : translate('addFailed', currentLang));
     }
   };
 
@@ -89,7 +166,9 @@ export const VocabularyManager: React.FC = () => {
       setEditingWord(null);
       editForm.resetFields();
     } catch (error) {
-      message.error(translate('editFailed', currentLang));
+      message.error(error instanceof DuplicateWordError
+        ? (currentLang === 'vi' ? 'Từ này đã có trong sổ từ.' : 'This word is already saved.')
+        : translate('editFailed', currentLang));
     }
   };
 
@@ -119,7 +198,7 @@ export const VocabularyManager: React.FC = () => {
         try {
           await deleteWord(id);
           message.success(translate('deleteSuccess', currentLang));
-        } catch (error) {
+        } catch {
           message.error(translate('deleteFailed', currentLang));
         }
       }
@@ -136,13 +215,13 @@ export const VocabularyManager: React.FC = () => {
     setIsAutoFilling(true);
     try {
       const result = await fetchBasicMeaning(word);
-      if (result && result.meanings.length > 0) {
+      if (result && (result.meanings?.length || result.vietnameseMeaning)) {
         const def = result.meanings?.[0]?.definitions?.[0];
         
         // Compile other definitions/meanings for the description area
-        const otherMeanings = result.meanings.map((m: any) => {
+        const otherMeanings = (result.meanings || []).map(m => {
           const part = m.partOfSpeech ? `[${m.partOfSpeech}] ` : '';
-          const defs = m.definitions.slice(0, 2).map((d: any) => d.definition).join('; ');
+          const defs = m.definitions.slice(0, 2).map(d => d.definition).join('; ');
           return `${part}${defs}`;
         }).join('\n');
 
@@ -157,7 +236,7 @@ export const VocabularyManager: React.FC = () => {
       } else {
         message.warning(translate('autoFillEmpty', currentLang));
       }
-    } catch (error) {
+    } catch {
       message.error(translate('autoFillError', currentLang));
     } finally {
       setIsAutoFilling(false);
@@ -169,16 +248,17 @@ export const VocabularyManager: React.FC = () => {
       title: translate('tableWord', currentLang),
       dataIndex: 'word',
       key: 'word',
-      width: '15%',
+      width: '18%',
       render: (text: string, record: Word) => (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <strong style={{ fontSize: 16, color: '#1e293b' }}>{text}</strong>
             <Button 
               type="text" 
               size="small" 
               icon={<Volume2 size={14} color="#8b5cf6" />} 
               onClick={() => playAudio(text)} 
+              title="Phát âm"
               style={{ 
                 padding: 0, 
                 minWidth: 'auto', 
@@ -191,7 +271,32 @@ export const VocabularyManager: React.FC = () => {
                 justifyContent: 'center'
               }}
             />
+            <Button 
+              type="text" 
+              size="small" 
+              icon={<Mic size={14} color={speakingWord === text && isListening ? '#ef4444' : '#6366f1'} />} 
+              onClick={() => handleTestPronunciation(text)} 
+              title="Luyện phát âm"
+              style={{ 
+                padding: 0, 
+                minWidth: 'auto', 
+                height: 24, 
+                width: 24, 
+                background: speakingWord === text && isListening ? '#fee2e2' : 'rgba(99, 102, 241, 0.08)', 
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            />
           </div>
+
+          {speakingWord === text && speakingResult && (
+            <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: speakingResult.matched ? '#10b981' : '#ef4444' }}>
+              🎯 {speakingResult.score}% ({speakingResult.transcript})
+            </div>
+          )}
+
           {record.phonetic && <div style={{ fontSize: 12, color: '#64748b', fontStyle: 'italic', marginTop: 2 }}>{record.phonetic}</div>}
           {record.status && (
             <div style={{ marginTop: 6 }}>
@@ -201,7 +306,7 @@ export const VocabularyManager: React.FC = () => {
                 record.status === 'learning' ? 'warning' : 'default'
               } style={{ fontSize: 10, borderRadius: 8, padding: '0 6px' }}>
                 {record.status === 'mastered' ? translate('statusMastered', currentLang) : 
-                 record.status === 'reviewing' ? translate('statusLearning', currentLang) : // (SRS mapping uses reviewing/learning)
+                 record.status === 'reviewing' ? translate('statusReviewing', currentLang) :
                  record.status === 'learning' ? translate('statusLearning', currentLang) : translate('statusNew', currentLang)}
               </Tag>
             </div>
@@ -212,8 +317,8 @@ export const VocabularyManager: React.FC = () => {
     {
       title: translate('tableMeaning', currentLang),
       key: 'meaning_details',
-      width: '25%',
-      render: (_: any, record: Word) => (
+      width: '24%',
+      render: (_: unknown, record: Word) => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <strong style={{ fontSize: 15, color: '#8b5cf6' }}>{record.meaning}</strong>
           {record.description && (
@@ -234,37 +339,54 @@ export const VocabularyManager: React.FC = () => {
       ),
     },
     {
-      title: translate('tableExample', currentLang),
-      dataIndex: 'example',
-      key: 'example',
-      width: '30%',
-      render: (text: string) => text ? (
-        <div style={{ 
-          fontSize: 13, 
-          fontStyle: 'italic', 
-          color: '#475569', 
-          lineHeight: 1.5,
-          position: 'relative',
-          paddingLeft: 12,
-          borderLeft: '2px solid #cbd5e1'
-        }}>
-          <Paragraph 
-            ellipsis={{ 
-              rows: 2, 
-              expandable: true, 
-              symbol: currentLang === 'vi' ? 'xem thêm' : 'more' 
-            }}
-            style={{ 
-              margin: 0, 
-              color: 'inherit', 
-              fontStyle: 'inherit',
-              fontSize: 'inherit'
-            }}
-          >
-            "{text}"
-          </Paragraph>
-        </div>
-      ) : <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>{translate('noExample', currentLang)}</span>,
+      title: currentLang === 'vi' ? 'Ngữ cảnh & Ví dụ' : 'Context & Example',
+      key: 'context_example',
+      width: '28%',
+      render: (_: unknown, record: Word) => {
+        const text = record.contextSentence || record.example;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {text ? (
+              <div style={{ 
+                fontSize: 13, 
+                fontStyle: 'italic', 
+                color: '#475569', 
+                lineHeight: 1.5,
+                position: 'relative',
+                paddingLeft: 10,
+                borderLeft: '2px solid #8b5cf6'
+              }}>
+                <Paragraph 
+                  ellipsis={{ 
+                    rows: 2, 
+                    expandable: true, 
+                    symbol: currentLang === 'vi' ? 'xem thêm' : 'more' 
+                  }}
+                  style={{ 
+                    margin: 0, 
+                    color: 'inherit', 
+                    fontStyle: 'inherit',
+                    fontSize: 'inherit'
+                  }}
+                >
+                  "{text}"
+                </Paragraph>
+              </div>
+            ) : (
+              <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: 12 }}>{translate('noExample', currentLang)}</span>
+            )}
+
+            {record.sourceUrl && (
+              <div style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                <ExternalLink size={10} />
+                <a href={record.sourceUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', maxWidth: '90%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {record.sourceTitle || record.sourceUrl}
+                </a>
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: translate('tableTags', currentLang),
@@ -301,7 +423,7 @@ export const VocabularyManager: React.FC = () => {
       key: 'action',
       width: '10%',
       align: 'center' as const,
-      render: (_: any, record: Word) => (
+      render: (_: unknown, record: Word) => (
         <Space size="middle" style={{ justifyContent: 'center', width: '100%' }}>
           <Tooltip title={currentLang === 'vi' ? 'Chỉnh sửa' : 'Edit'}>
             <Button 
@@ -327,7 +449,7 @@ export const VocabularyManager: React.FC = () => {
 
   return (
     <div style={{ animation: 'fadeIn 0.5s ease' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
         <div>
           <h2 style={{ margin: 0, fontWeight: 800, fontSize: '26px', color: '#1e293b' }}>
             {translate('vocabTitle', currentLang)}
@@ -336,15 +458,33 @@ export const VocabularyManager: React.FC = () => {
             {translate('vocabDesc', currentLang)}
           </p>
         </div>
-        <Button 
-          type="primary" 
-          size="large" 
-          style={{ borderRadius: 20, fontWeight: 600, background: 'linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%)', border: 'none', boxShadow: '0 4px 12px rgba(139, 92, 246, 0.25)', height: 44 }} 
-          icon={<Plus size={18} />} 
-          onClick={() => setIsModalOpen(true)}
-        >
-          {translate('btnAddNewWord', currentLang)}
-        </Button>
+        <Space wrap>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            aria-label={currentLang === 'vi' ? 'Chọn tệp CSV từ vựng' : 'Choose vocabulary CSV file'}
+            style={{ display: 'none' }}
+            onChange={event => void handleImport(event.target.files?.[0])}
+          />
+          <Tooltip title={currentLang === 'vi' ? 'CSV cần cột word, meaning; các thẻ cách nhau bằng dấu chấm phẩy.' : 'CSV needs word and meaning columns; separate tags with semicolons.'}>
+            <Button icon={<Upload size={16} />} loading={isImporting} onClick={() => importInputRef.current?.click()}>
+              {currentLang === 'vi' ? 'Nhập CSV' : 'Import CSV'}
+            </Button>
+          </Tooltip>
+          <Button icon={<Download size={16} />} onClick={handleExport} disabled={!words.length}>
+            {currentLang === 'vi' ? 'Xuất CSV' : 'Export CSV'}
+          </Button>
+          <Button
+            type="primary"
+            size="large"
+            style={{ borderRadius: 20, fontWeight: 600, background: 'linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%)', border: 'none', boxShadow: '0 4px 12px rgba(139, 92, 246, 0.25)', height: 44 }}
+            icon={<Plus size={18} />}
+            onClick={() => setIsModalOpen(true)}
+          >
+            {translate('btnAddNewWord', currentLang)}
+          </Button>
+        </Space>
       </div>
 
       <div className="glass-card" style={{ padding: 16 }}>

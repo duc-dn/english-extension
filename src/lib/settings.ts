@@ -1,14 +1,24 @@
 export interface Settings {
-  ai_provider: 'gemini' | 'openai' | 'ollama' | 'none';
+  ai_provider: 'gemini' | 'openai' | 'deepseek' | 'chatgpt_web' | 'ollama' | 'none';
   gemini_api_key?: string;
   gemini_model?: string;
   openai_api_key?: string;
+  openai_model?: string;
+  openai_auth_type?: 'chatgpt_web' | 'api_key';
+  chatgpt_access_token?: string;
+  chatgpt_model?: string;
+  deepseek_api_key?: string;
+  deepseek_model?: string;
+  deepseek_auth_type?: 'api_key' | 'web_token' | 'local_proxy';
+  deepseek_web_token?: string;
+  deepseek_proxy_url?: string;
   ollama_url?: string;
   github_repo?: string;
   github_token?: string;
   theme: 'light' | 'dark' | 'system';
   language?: 'vi' | 'en';
   show_trigger_icon?: boolean;
+  daily_review_goal?: number;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -16,12 +26,22 @@ const DEFAULT_SETTINGS: Settings = {
   gemini_api_key: '',
   gemini_model: 'gemini-2.5-flash-lite',
   openai_api_key: '',
+  openai_model: 'gpt-4o-mini',
+  openai_auth_type: 'chatgpt_web',
+  chatgpt_access_token: '',
+  chatgpt_model: 'gpt-6.1-sol',
+  deepseek_api_key: '',
+  deepseek_model: 'deepseek-chat',
+  deepseek_auth_type: 'api_key',
+  deepseek_web_token: '',
+  deepseek_proxy_url: 'http://127.0.0.1:9655',
   ollama_url: 'http://localhost:11434',
   github_repo: '',
   github_token: '',
   theme: 'system',
   language: 'vi',
   show_trigger_icon: true,
+  daily_review_goal: 10,
 };
 
 // Mock fallback for tests/local web dev

@@ -1,25 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Typography, Space, Tag, Select, notification, Progress, Card, Row, Col, List } from 'antd';
-import { getWordsToReview, getAllTags, updateWordReview, type Word } from '../lib/db';
-import { Check, ArrowRight, Filter, Volume2, Award, Zap, Layers } from 'lucide-react';
+import { getWordsToReview, getAllTags, updateWordReview, getReviewIntervalMinutes, type ReviewScore, type Word } from '../lib/db';
+import { Check, ArrowRight, Filter, Volume2, Award, Zap, Layers, Mic, MicOff, BookOpen, ExternalLink } from 'lucide-react';
 import { playAudio } from '../lib/audio';
 import { useSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
+import { VoiceRecognitionService, evaluatePronunciation, type PronunciationScore } from '../lib/speechRecognition';
 
 const { Title, Text } = Typography;
 
-const getIntervalDays = (level: number, lang: 'vi' | 'en') => {
-  const isVi = lang === 'vi';
-  switch (level) {
-    case 0: return isVi ? 'ngay' : 'now';
-    case 1: return isVi ? '1 ngày' : '1 day';
-    case 2: return isVi ? '3 ngày' : '3 days';
-    case 3: return isVi ? '7 ngày' : '7 days';
-    case 4: return isVi ? '14 ngày' : '14 days';
-    case 5: return isVi ? '30 ngày' : '30 days';
-    default: return isVi ? '90 ngày' : '90 days';
-  }
+const getIntervalLabel = (level: number, score: ReviewScore, lang: 'vi' | 'en') => {
+  const minutes = getReviewIntervalMinutes(level, score);
+  if (minutes < 60) return lang === 'vi' ? `${minutes} phút` : `${minutes} min`;
+  if (minutes < 1440) return lang === 'vi' ? `${Math.round(minutes / 60)} giờ` : `${Math.round(minutes / 60)} hr`;
+  const days = minutes / 1440;
+  return lang === 'vi' ? `${days} ngày` : `${days} days`;
 };
 
 export const FlashcardReview: React.FC = () => {
@@ -31,9 +27,47 @@ export const FlashcardReview: React.FC = () => {
   const [isFlipped, setIsFlipped] = useState(false);
   const [sessionStats, setSessionStats] = useState({ again: 0, hard: 0, good: 0, easy: 0 });
   const [promotions, setPromotions] = useState<{ word: string; oldStatus: string; newStatus: string }[]>([]);
+  const isScoringRef = useRef(false);
+
+  // Speaking evaluation state
+  const [isListening, setIsListening] = useState(false);
+  const [speakingResult, setSpeakingResult] = useState<PronunciationScore | null>(null);
+  const voiceServiceRef = useRef<VoiceRecognitionService | null>(null);
 
   const settings = useSettings();
   const currentLang = settings.language || 'vi';
+
+  useEffect(() => {
+    voiceServiceRef.current = new VoiceRecognitionService();
+  }, []);
+
+  const handleStartSpeaking = (targetWord: string) => {
+    if (!voiceServiceRef.current || !voiceServiceRef.current.isSupported()) {
+      notification.warning({
+        message: currentLang === 'vi' ? 'Chưa hỗ trợ Micro' : 'Mic not supported',
+        description: currentLang === 'vi' ? 'Trình duyệt chưa hỗ trợ Web Speech API.' : 'Web Speech API is not supported.'
+      });
+      return;
+    }
+
+    setIsListening(true);
+    setSpeakingResult(null);
+
+    voiceServiceRef.current.startListening(
+      (transcript) => {
+        const evalResult = evaluatePronunciation(targetWord, transcript, currentLang);
+        setSpeakingResult(evalResult);
+        setIsListening(false);
+      },
+      (err) => {
+        console.warn('Speech recognition error:', err);
+        setIsListening(false);
+      },
+      () => {
+        setIsListening(false);
+      }
+    );
+  };
 
   useEffect(() => {
     const fetchTags = async () => {
@@ -65,20 +99,25 @@ export const FlashcardReview: React.FC = () => {
 
   const currentWord = reviewQueue[currentIndex];
 
-  const handleScore = async (score: 'again' | 'hard' | 'good' | 'easy') => {
-    if (currentWord) {
+  const handleScore = useCallback(async (score: ReviewScore) => {
+    if (!currentWord || isScoringRef.current) return;
+    isScoringRef.current = true;
+    try {
+      const result = await updateWordReview(currentWord.id, score);
       setSessionStats(prev => ({
         ...prev,
         [score]: prev[score] + 1
       }));
-
-      const result = await updateWordReview(currentWord.id, score);
       if (result && result.newStatus !== result.oldStatus) {
         setPromotions(prev => [
           ...prev,
           { word: currentWord.word, oldStatus: result.oldStatus, newStatus: result.newStatus }
         ]);
       }
+    } catch {
+      isScoringRef.current = false;
+      notification.error({ message: currentLang === 'vi' ? 'Không lưu được lượt ôn.' : 'Could not save review.' });
+      return;
     }
     
     let title = '';
@@ -98,7 +137,7 @@ export const FlashcardReview: React.FC = () => {
     }
 
     notification.success({ 
-      message: `Score: ${title}`,
+      message: `${currentLang === 'vi' ? 'Đánh giá' : 'Rating'}: ${title}`,
       description: msg,
       key: 'flashcard-score', 
       placement: 'topRight',
@@ -108,8 +147,9 @@ export const FlashcardReview: React.FC = () => {
     setIsFlipped(false);
     setTimeout(() => {
       setCurrentIndex(prev => prev + 1);
+      isScoringRef.current = false;
     }, 300); // Wait for flip back animation before showing next card
-  };
+  }, [currentWord, currentLang]);
 
   // Keyboard shortcut listener
   useEffect(() => {
@@ -144,7 +184,7 @@ export const FlashcardReview: React.FC = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isFlipped, currentIndex, reviewQueue]);
+  }, [isFlipped, currentIndex, reviewQueue, handleScore]);
 
   const renderContent = () => {
     if (reviewQueue.length === 0) {
@@ -340,48 +380,142 @@ export const FlashcardReview: React.FC = () => {
         
         <div 
           className={`flip-card-container hover-lift ${isFlipped ? 'flipped' : ''}`}
-          style={{ width: 450, height: 320, cursor: isFlipped ? 'default' : 'pointer' }}
+          style={{ width: 480, minHeight: 350, cursor: isFlipped ? 'default' : 'pointer' }}
           onClick={() => !isFlipped && setIsFlipped(true)}
         >
           <div className="flip-card-inner">
             {/* Front of Card */}
-            <div className="flip-card-front premium-flashcard">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <Title level={1} style={{ fontSize: '3.0rem', margin: 0, fontWeight: 600, letterSpacing: '-0.5px' }}>{currentWord.word}</Title>
+            <div className="flip-card-front premium-flashcard" style={{ padding: '24px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center' }}>
+                <Title level={1} style={{ fontSize: '2.8rem', margin: 0, fontWeight: 700, letterSpacing: '-0.5px', color: '#1e293b' }}>
+                  {currentWord.word}
+                </Title>
                 <Button 
                   type="text" 
                   shape="circle" 
                   icon={<Volume2 size={24} color="#6366f1" />} 
                   onClick={(e) => { e.stopPropagation(); playAudio(currentWord.word); }} 
+                  title="Phát âm chuẩn"
+                />
+                <Button 
+                  type={isListening ? 'primary' : 'default'}
+                  danger={isListening}
+                  shape="circle" 
+                  icon={isListening ? <MicOff size={20} /> : <Mic size={20} color="#8b5cf6" />} 
+                  onClick={(e) => { e.stopPropagation(); handleStartSpeaking(currentWord.word); }} 
+                  title="Luyện phát âm (Speaking Practice)"
+                  style={{ borderColor: '#8b5cf6' }}
                 />
               </div>
-              {currentWord.phonetic && <Text style={{ fontSize: '1.5rem', color: '#64748b', marginTop: 8 }}>{currentWord.phonetic}</Text>}
+
+              {currentWord.phonetic && (
+                <Text style={{ fontSize: '1.3rem', color: '#64748b', marginTop: 6, display: 'block' }}>
+                  {currentWord.phonetic}
+                </Text>
+              )}
+
+              {/* Speaking result banner */}
+              {isListening && (
+                <div style={{ marginTop: 12, padding: '6px 14px', borderRadius: 20, background: '#fee2e2', color: '#dc2626', fontSize: 13, fontWeight: 600 }}>
+                  🎙️ {currentLang === 'vi' ? 'Đang lắng nghe... Hãy phát âm từ này!' : 'Listening... Say this word!'}
+                </div>
+              )}
+
+              {speakingResult && (
+                <div style={{
+                  marginTop: 12,
+                  padding: '8px 16px',
+                  borderRadius: 12,
+                  background: speakingResult.matched ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                  border: `1px solid ${speakingResult.matched ? '#10b981' : '#ef4444'}`,
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontWeight: 700, color: speakingResult.matched ? '#059669' : '#dc2626', fontSize: 14 }}>
+                    🎯 {speakingResult.score}% • {speakingResult.feedback}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                    {currentLang === 'vi' ? 'Bạn đã nói:' : 'You said:'} <em>"{speakingResult.transcript}"</em>
+                  </div>
+                </div>
+              )}
+
               {currentWord.tags && currentWord.tags.length > 0 && (
-                <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <div style={{ marginTop: 12, display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
                   {(currentWord.tags || []).map(tag => (
-                    <Tag key={tag} color="geekblue" style={{ margin: 0, borderRadius: 12 }}>{tag}</Tag>
+                    <Tag key={tag} color="geekblue" style={{ margin: 0, borderRadius: 12 }}>#{tag}</Tag>
                   ))}
                 </div>
               )}
-              <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', color: '#94a3b8', gap: 8 }}>
-                <Text>{translate('clickToFlip', currentLang)}</Text>
+
+              {/* Context preview on front */}
+              {(currentWord.contextSentence || currentWord.example) && (
+                <div style={{
+                  marginTop: 14,
+                  fontSize: 13,
+                  color: '#64748b',
+                  fontStyle: 'italic',
+                  background: 'rgba(0,0,0,0.02)',
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  maxWidth: '90%',
+                  lineHeight: 1.4
+                }}>
+                  "{currentWord.contextSentence || currentWord.example}"
+                </div>
+              )}
+
+              <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', color: '#94a3b8', gap: 8 }}>
+                <Text style={{ fontSize: 13 }}>{translate('clickToFlip', currentLang)}</Text>
                 <ArrowRight size={16} />
               </div>
             </div>
             
             {/* Back of Card */}
             <div className="flip-card-back premium-flashcard" style={{ padding: '24px', boxSizing: 'border-box' }}>
-              <Title level={2} style={{ color: '#8b5cf6', marginTop: 0, marginBottom: 8, fontSize: '2.5rem', textAlign: 'center' }}>
+              <Title level={2} style={{ color: '#8b5cf6', marginTop: 0, marginBottom: 8, fontSize: '2.2rem', textAlign: 'center' }}>
                 {currentWord.meaning || 'Chưa dịch'}
               </Title>
+
               {currentWord.description && (
-                <div style={{ fontSize: '1.2rem', color: '#64748b', marginBottom: 16, textAlign: 'center', whiteSpace: 'pre-wrap', maxHeight: '100px', overflowY: 'auto' }}>
+                <div style={{ fontSize: '1.1rem', color: '#64748b', marginBottom: 12, textAlign: 'center', whiteSpace: 'pre-wrap', maxHeight: '80px', overflowY: 'auto' }}>
                   {currentWord.description}
                 </div>
               )}
-              <div style={{ marginTop: 20, display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+
+              {/* Original Context & Source URL */}
+              {(currentWord.contextSentence || currentWord.example) && (
+                <div style={{
+                  fontSize: '13px',
+                  color: '#334155',
+                  background: 'rgba(99, 102, 241, 0.08)',
+                  border: '1px solid rgba(99, 102, 241, 0.2)',
+                  borderRadius: 10,
+                  padding: '10px 14px',
+                  margin: '10px 0',
+                  textAlign: 'left',
+                  lineHeight: 1.5,
+                  width: '100%'
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                    <BookOpen size={13} /> {currentLang === 'vi' ? 'Ngữ cảnh gốc khi đọc web:' : 'Original Context:'}
+                  </div>
+                  <div style={{ fontStyle: 'italic', color: '#1e293b' }}>
+                    "{currentWord.contextSentence || currentWord.example}"
+                  </div>
+                  {currentWord.sourceUrl && (
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <ExternalLink size={11} />
+                      <a href={currentWord.sourceUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'underline' }}>
+                        {currentWord.sourceTitle || currentWord.sourceUrl}
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ marginTop: 12, display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
                 {(currentWord.tags || []).map(tag => (
-                  <Tag key={tag} color={tag === 'it' || tag === 'tech' ? 'purple' : 'geekblue'} style={{ borderRadius: 16, padding: '4px 12px', border: 'none' }}>
+                  <Tag key={tag} color={tag === 'it' || tag === 'tech' ? 'purple' : 'geekblue'} style={{ borderRadius: 16, padding: '2px 10px', border: 'none' }}>
                     #{tag}
                   </Tag>
                 ))}
@@ -407,28 +541,28 @@ export const FlashcardReview: React.FC = () => {
                 onClick={() => handleScore('again')}
               >
                 <span style={{ fontWeight: 700, fontSize: 14 }}>{translate('btnIncorrect', currentLang)}</span>
-                <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 500 }}>Phím [1] • {getIntervalDays(0, currentLang)}</span>
+                <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 500 }}>{currentLang === 'vi' ? 'Phím' : 'Key'} [1] • {getIntervalLabel(currentWord.review_level, 'again', currentLang)}</span>
               </button>
               <button 
                 className="srs-btn hard"
                 onClick={() => handleScore('hard')}
               >
                 <span style={{ fontWeight: 700, fontSize: 14 }}>{translate('btnHard', currentLang)}</span>
-                <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 500 }}>Phím [2] • {getIntervalDays(Math.max(0, currentWord.review_level), currentLang)}</span>
+                <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 500 }}>{currentLang === 'vi' ? 'Phím' : 'Key'} [2] • {getIntervalLabel(currentWord.review_level, 'hard', currentLang)}</span>
               </button>
               <button 
                 className="srs-btn good"
                 onClick={() => handleScore('good')}
               >
                 <span style={{ fontWeight: 700, fontSize: 14 }}>{translate('btnGood', currentLang)}</span>
-                <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 500 }}>Phím [3] • {getIntervalDays(currentWord.review_level + 1, currentLang)}</span>
+                <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 500 }}>{currentLang === 'vi' ? 'Phím' : 'Key'} [3] • {getIntervalLabel(currentWord.review_level, 'good', currentLang)}</span>
               </button>
               <button 
                 className="srs-btn easy"
                 onClick={() => handleScore('easy')}
               >
                 <span style={{ fontWeight: 700, fontSize: 14 }}>{translate('btnEasy', currentLang)}</span>
-                <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 500 }}>Phím [4] • {getIntervalDays(currentWord.review_level + 2, currentLang)}</span>
+                <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 500 }}>{currentLang === 'vi' ? 'Phím' : 'Key'} [4] • {getIntervalLabel(currentWord.review_level, 'easy', currentLang)}</span>
               </button>
             </Space>
           )}

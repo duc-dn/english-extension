@@ -19,9 +19,53 @@ const ContentApp: React.FC = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState('');
 
+  interface SelectionRect {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    width: number;
+    height: number;
+  }
+
+  const getSelectionDimensions = (selection: Selection | null): SelectionRect | null => {
+    if (!selection || selection.rangeCount === 0) return null;
+    const range = selection.getRangeAt(0);
+    const clientRects = Array.from(range.getClientRects()).filter(r => r.width > 0 && r.height > 0);
+    
+    if (clientRects.length > 0) {
+      const minLeft = Math.min(...clientRects.map(r => r.left));
+      const maxRight = Math.max(...clientRects.map(r => r.right));
+      const minTop = Math.min(...clientRects.map(r => r.top));
+      const maxBottom = Math.max(...clientRects.map(r => r.bottom));
+      
+      return {
+        left: minLeft,
+        top: minTop,
+        right: maxRight,
+        bottom: maxBottom,
+        width: Math.max(maxRight - minLeft, 10),
+        height: Math.max(maxBottom - minTop, 10)
+      };
+    }
+    
+    const bRect = range.getBoundingClientRect();
+    if (bRect && (bRect.width > 0 || bRect.height > 0)) {
+      return {
+        left: bRect.left,
+        top: bRect.top,
+        right: bRect.right,
+        bottom: bRect.bottom,
+        width: bRect.width,
+        height: bRect.height
+      };
+    }
+    return null;
+  };
+
   const [triggerPosition, setTriggerPosition] = useState<{ x: number, y: number } | null>(null);
   const [pendingText, setPendingText] = useState('');
-  const [pendingRect, setPendingRect] = useState<DOMRect | ClientRect | null>(null);
+  const [pendingRect, setPendingRect] = useState<SelectionRect | null>(null);
   const showTriggerIconRef = useRef(true);
 
   useEffect(() => {
@@ -31,6 +75,7 @@ const ContentApp: React.FC = () => {
         ai_provider: 'none', 
         gemini_api_key: '', 
         openai_api_key: '', 
+        chatgpt_access_token: '',
         ollama_url: 'http://localhost:11434',
         show_trigger_icon: true
       }, (items: any) => {
@@ -39,6 +84,7 @@ const ContentApp: React.FC = () => {
         const hasAi = 
           (items.ai_provider === 'gemini' && !!items.gemini_api_key) ||
           (items.ai_provider === 'openai' && !!items.openai_api_key) ||
+          (items.ai_provider === 'chatgpt_web') ||
           (items.ai_provider === 'ollama' && !!items.ollama_url);
         setHasAiProvider(hasAi);
         showTriggerIconRef.current = items.show_trigger_icon !== false;
@@ -57,16 +103,18 @@ const ContentApp: React.FC = () => {
               setTriggerPosition(null);
             }
           }
-          if (changes.ai_provider || changes.gemini_api_key || changes.openai_api_key || changes.ollama_url) {
+          if (changes.ai_provider || changes.gemini_api_key || changes.openai_api_key || changes.chatgpt_access_token || changes.ollama_url) {
             chrome.storage.sync.get({ 
               ai_provider: 'none', 
               gemini_api_key: '', 
               openai_api_key: '', 
+              chatgpt_access_token: '',
               ollama_url: 'http://localhost:11434' 
             }, (items: any) => {
               const hasAi = 
                 (items.ai_provider === 'gemini' && !!items.gemini_api_key) ||
                 (items.ai_provider === 'openai' && !!items.openai_api_key) ||
+                (items.ai_provider === 'chatgpt_web') ||
                 (items.ai_provider === 'ollama' && !!items.ollama_url);
               setHasAiProvider(hasAi);
             });
@@ -78,24 +126,48 @@ const ContentApp: React.FC = () => {
     }
   }, []);
 
-  const triggerTranslation = async (text: string, rect: DOMRect | ClientRect) => {
+  const triggerTranslation = async (text: string, rect: SelectionRect) => {
     const wordCount = text.split(/\s+/).filter(Boolean).length;
     const phrase = wordCount > 1;
     setIsPhrase(phrase);
 
+    // Calculate width to match the selected text width accurately
     let width = 280;
     if (phrase) {
-      width = Math.max(rect.width, 150);
-      width = Math.min(width, window.innerWidth - 40);
+      // For phrases / sentences, match the width of the selected text
+      const textWidth = Math.round(rect.width);
+      // Min 220px for controls, Max 650px or viewport width - 32px
+      width = Math.max(textWidth, 220);
+      width = Math.min(width, Math.min(window.innerWidth - 32, 650));
+    } else {
+      // For single words, make it compact around 240px - 320px
+      width = Math.min(Math.max(rect.width + 80, 240), 320);
     }
     setPopupWidth(width);
 
-    let x = rect.left + window.scrollX + (rect.width / 2) - (width / 2);
+    // Calculate left position (x)
+    let x = rect.left + window.scrollX;
+    // For single word or small text, center under the selection
+    if (!phrase || rect.width < width) {
+      x = rect.left + window.scrollX + (rect.width / 2) - (width / 2);
+    }
+
+    // Ensure within screen bounds
+    if (x < window.scrollX + 12) {
+      x = window.scrollX + 12;
+    }
+    if (x + width > window.innerWidth + window.scrollX - 12) {
+      x = window.innerWidth + window.scrollX - width - 12;
+    }
+
     let y = rect.bottom + window.scrollY + 8;
-    
     let showBelowText = true;
-    if (x < window.scrollX + 10) x = window.scrollX + 10;
-    if (x + width > window.innerWidth + window.scrollX - 10) x = window.innerWidth + window.scrollX - width - 10;
+
+    // If near bottom of viewport, position above selection
+    if (rect.bottom + 140 > window.innerHeight && rect.top > 140) {
+      y = rect.top + window.scrollY - 8;
+      showBelowText = false;
+    }
 
     setTriggerPosition(null);
     setPosition({ x, y });
@@ -169,10 +241,9 @@ const ContentApp: React.FC = () => {
         const text = selection?.toString().trim() || '';
         
         if (text && text.length > 0 && /[a-zA-Z]/.test(text) && text.length < 500) {
-          const range = selection?.getRangeAt(0);
-          const rect = range?.getBoundingClientRect();
-          if (rect) {
-            triggerTranslation(text, rect);
+          const dims = getSelectionDimensions(selection);
+          if (dims) {
+            triggerTranslation(text, dims);
           }
         }
       }
@@ -213,14 +284,13 @@ const ContentApp: React.FC = () => {
         }
 
         if (showTriggerIconRef.current) {
-          const range = selection?.getRangeAt(0);
-          const rect = range?.getBoundingClientRect();
-          if (rect) {
-            const x = rect.left + window.scrollX + (rect.width / 2) - 14;
-            const y = rect.top + window.scrollY - 36;
+          const dims = getSelectionDimensions(selection);
+          if (dims) {
+            const x = dims.left + window.scrollX + (dims.width / 2) - 14;
+            const y = dims.top + window.scrollY - 36;
             setTriggerPosition({ x, y });
             setPendingText(text);
-            setPendingRect(rect);
+            setPendingRect(dims);
           }
         }
       }, 10);
@@ -304,7 +374,10 @@ const ContentApp: React.FC = () => {
     const selection = window.getSelection();
     let context = '';
     if (selection && selection.anchorNode) {
-      context = selection.anchorNode.textContent || '';
+      const fullText = selection.anchorNode.textContent || '';
+      const sentences = fullText.split(/(?<=[.!?])\s+|\n+/);
+      const matchedSentence = sentences.find(s => s.toLowerCase().includes(selectedText.toLowerCase()));
+      context = matchedSentence ? matchedSentence.trim() : fullText.trim();
     }
 
     try {
@@ -314,7 +387,10 @@ const ContentApp: React.FC = () => {
           word: selectedText,
           phonetic: phonetic,
           meaning: meaning || selectedText,
-          example: context.trim()
+          example: context || '',
+          contextSentence: context || '',
+          sourceUrl: window.location.href,
+          sourceTitle: document.title
         }
       }, (response) => {
         if (chrome.runtime.lastError) {
@@ -414,11 +490,12 @@ const ContentApp: React.FC = () => {
           position: 'absolute',
           left: position.x,
           top: position.y,
+          transform: showBelow ? 'none' : 'translateY(-100%)',
           zIndex: 999999,
           background: isDark ? '#1e2230' : '#ffffff',
           border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #cbd5e1',
           color: isDark ? '#ffffff' : '#1e293b',
-          padding: '10px 12px',
+          padding: '10px 14px',
           borderRadius: '10px',
           boxShadow: isDark 
             ? '0 12px 30px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.2)' 
@@ -429,6 +506,7 @@ const ContentApp: React.FC = () => {
           flexDirection: 'column',
           gap: '8px',
           width: `${popupWidth}px`,
+          maxWidth: 'min(calc(100vw - 24px), 650px)',
           boxSizing: 'border-box',
           userSelect: 'none',
           animation: 'engExtFadeIn 0.15s ease-out'
@@ -473,8 +551,10 @@ const ContentApp: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ color: '#64748b', fontSize: '10px', fontWeight: 800, letterSpacing: '0.5px' }}>
-                        {currentLang === 'vi' ? 'DỊCH NGHĨA (FREE)' : 'MEANING (FREE)'}
+                      <span style={{ color: hasAiProvider ? '#c084fc' : '#64748b', fontSize: '10px', fontWeight: 800, letterSpacing: '0.5px' }}>
+                        {hasAiProvider 
+                          ? (currentLang === 'vi' ? 'DỊCH NGHĨA (AI ✨)' : 'MEANING (AI ✨)') 
+                          : (currentLang === 'vi' ? 'DỊCH NGHĨA (FREE)' : 'MEANING (FREE)')}
                       </span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
-import { db, addWord, getWordsToReview, getWordsByTag, deleteWord } from './db';
+import { db, addWord, getWordsToReview, getWordsByTag, deleteWord, updateWord, updateWordReview, incrementWrongCount, importWords, DuplicateWordError, getReviewIntervalMinutes } from './db';
 
 describe('English Extension DB (Dexie)', () => {
   beforeEach(async () => {
@@ -73,7 +73,8 @@ describe('English Extension DB (Dexie)', () => {
   });
 
   it('should delete a word correctly', async () => {
-    const word = await addWord({ word: 'delete-me', meaning: '', example: '', tags: [] });
+    const word = await addWord({ word: 'delete-me', meaning: 'xóa', example: '', tags: [] });
+    await updateWordReview(word.id, 'good');
     
     let count = await db.words.count();
     expect(count).toBe(1);
@@ -82,5 +83,58 @@ describe('English Extension DB (Dexie)', () => {
 
     count = await db.words.count();
     expect(count).toBe(0);
+    expect(await db.review_history.count()).toBe(0);
+  });
+
+  it('prevents duplicate words regardless of case and spaces', async () => {
+    await addWord({ word: '  Take   off ', meaning: 'cất cánh', example: '', tags: [] });
+    const another = await addWord({ word: 'land', meaning: 'hạ cánh', example: '', tags: [] });
+    await expect(addWord({ word: 'take off', meaning: 'cởi ra', example: '', tags: [] }))
+      .rejects.toBeInstanceOf(DuplicateWordError);
+    await expect(updateWord(another.id, { word: 'TAKE OFF' })).rejects.toBeInstanceOf(DuplicateWordError);
+    expect(await db.words.count()).toBe(2);
+  });
+
+  it('imports only new words and keeps existing review progress', async () => {
+    const existing = await addWord({ word: 'apple', meaning: 'táo', example: '', tags: [] });
+    await updateWordReview(existing.id, 'good');
+    const result = await importWords([
+      { word: 'APPLE', meaning: 'quả táo', example: '', tags: [] },
+      { word: 'pear', meaning: 'lê', example: '', tags: ['fruit'] },
+      { word: ' Pear ', meaning: 'lê', example: '', tags: [] }
+    ]);
+    expect(result).toEqual({ added: 1, duplicates: 2 });
+    expect((await db.words.get(existing.id))?.review_level).toBe(1);
+  });
+
+  it('returns mastered words when their review date arrives', async () => {
+    const word = await addWord({ word: 'mastered', meaning: 'đã thuộc', example: '', tags: [] });
+    await db.words.update(word.id, { status: 'mastered', review_level: 5, next_review: new Date(Date.now() - 1000) });
+    expect((await getWordsToReview()).map(item => item.id)).toContain(word.id);
+  });
+
+  it('schedules mistakes for later review and quiz misses reset progress', async () => {
+    const word = await addWord({ word: 'recover', meaning: 'hồi phục', example: '', tags: [] });
+    const before = Date.now();
+    await updateWordReview(word.id, 'again');
+    let updated = await db.words.get(word.id);
+    expect(updated?.status).toBe('learning');
+    expect(updated!.next_review.getTime()).toBeGreaterThanOrEqual(before + 10 * 60_000);
+    expect(updated!.next_review.getTime()).toBeLessThan(before + 10 * 60_000 + 5000);
+
+    await updateWordReview(word.id, 'easy');
+    await incrementWrongCount(word.id);
+    updated = await db.words.get(word.id);
+    expect(updated?.wrong_count).toBe(1);
+    expect(updated?.review_level).toBe(0);
+    expect(updated?.status).toBe('learning');
+    expect(updated!.next_review.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('shows the same review intervals that are scheduled', () => {
+    expect(getReviewIntervalMinutes(0, 'again')).toBe(10);
+    expect(getReviewIntervalMinutes(0, 'hard')).toBe(60);
+    expect(getReviewIntervalMinutes(0, 'good')).toBe(1440);
+    expect(getReviewIntervalMinutes(0, 'easy')).toBe(3 * 1440);
   });
 });

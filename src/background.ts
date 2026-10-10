@@ -2,7 +2,80 @@ import { addWord } from './lib/db';
 import { syncToGithub } from './lib/github';
 import { subscribeToSettings } from './lib/settings';
 
+async function startChatGPTCompanion(): Promise<{ pairingToken: string }> {
+  let reply: { ok?: boolean; pairingToken?: string; error?: string };
+  try {
+    reply = await chrome.runtime.sendNativeMessage('com.english_extension.chatgpt', { action: 'start' });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Không gọi được ChatGPT native host: ${detail}. Nếu host chưa được cài, chạy npm run chatgpt:install-host -- ${chrome.runtime.id}`);
+  }
+  if (!reply?.ok || !reply.pairingToken) throw new Error(reply?.error || 'Không khởi động được ChatGPT companion.');
+  await chrome.storage.local.set({ chatgpt_pairing_code: reply.pairingToken });
+  return { pairingToken: reply.pairingToken };
+}
+
+async function requestChatGPTCompanion(request: { path: string; body?: unknown; token: string }) {
+  const paths = ['/status', '/login', '/logout', '/models', '/response'];
+  if (!paths.includes(request.path) || typeof request.token !== 'string' || request.token.length < 20) {
+    throw new Error('Yêu cầu ChatGPT không hợp lệ.');
+  }
+  const method = ['/login', '/logout', '/response'].includes(request.path) ? 'POST' : 'GET';
+  const run = (token: string) => fetch(`http://127.0.0.1:39671${request.path}`, {
+      method,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      ...(method === 'POST' ? { body: JSON.stringify(request.body || {}) } : {}),
+      signal: AbortSignal.timeout(request.path === '/response' ? 130000 : 30000),
+    });
+  let response: Response;
+  try { response = await run(request.token); }
+  catch {
+    const started = await startChatGPTCompanion();
+    response = await run(started.pairingToken);
+  }
+  if (response.status === 401) {
+    const started = await startChatGPTCompanion();
+    response = await run(started.pairingToken);
+  }
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || `Companion HTTP ${response.status}`);
+  return result;
+}
+
+async function setupProxyHeaderRules() {
+  if (typeof chrome !== 'undefined' && chrome.declarativeNetRequest) {
+    try {
+      await chrome.declarativeNetRequest.updateDynamicRules({
+        removeRuleIds: [9655],
+        addRules: [
+          {
+            id: 9655,
+            priority: 1,
+            action: {
+              type: chrome.declarativeNetRequest.RuleActionType.MODIFY_HEADERS,
+              requestHeaders: [
+                { header: 'origin', operation: chrome.declarativeNetRequest.HeaderOperation.REMOVE },
+                { header: 'referer', operation: chrome.declarativeNetRequest.HeaderOperation.REMOVE }
+              ]
+            },
+            condition: {
+              urlFilter: ':9655/',
+              resourceTypes: [
+                chrome.declarativeNetRequest.ResourceType.XMLHTTPREQUEST,
+                chrome.declarativeNetRequest.ResourceType.OTHER
+              ]
+            }
+          }
+        ]
+      });
+    } catch (e) {
+      console.warn('Could not register declarativeNetRequest rule:', e);
+    }
+  }
+}
+
 if (typeof chrome !== 'undefined') {
+  setupProxyHeaderRules();
   // Set global side panel default path
   if (chrome.sidePanel) {
     chrome.sidePanel.setOptions({
@@ -18,6 +91,7 @@ if (typeof chrome !== 'undefined') {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
+  setupProxyHeaderRules();
   chrome.contextMenus.create({
     id: 'open-sidepanel-selection',
     title: 'Dịch với English Extension',
@@ -52,6 +126,20 @@ chrome.commands.onCommand.addListener((command, tab) => {
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'CHATGPT_COMPANION_START') {
+    startChatGPTCompanion()
+      .then(sendResponse)
+      .catch((error) => sendResponse({ error: error.message || 'Không khởi động được ChatGPT companion.' }));
+    return true;
+  }
+
+  if (request.action === 'CHATGPT_COMPANION_REQUEST') {
+    requestChatGPTCompanion(request)
+      .then(sendResponse)
+      .catch((error) => sendResponse({ error: error.message || 'Không thể kết nối ChatGPT.' }));
+    return true;
+  }
+
   if (request.action === 'SYNC_GITHUB') {
     syncToGithub()
       .then(() => sendResponse({ success: true }))
@@ -63,7 +151,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'SAVE_WORD') {
-    const { word, meaning, phonetic, example } = request.payload;
+    const { word, meaning, phonetic, example, contextSentence, sourceUrl, sourceTitle } = request.payload;
     
     // Save to IndexedDB
     addWord({
@@ -71,6 +159,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       phonetic: phonetic || '',
       meaning: meaning || 'Chưa dịch được',
       example: example || '',
+      contextSentence: contextSentence || example || '',
+      sourceUrl: sourceUrl || '',
+      sourceTitle: sourceTitle || '',
       tags: ['web-clipping']
     }).then(() => {
       sendResponse({ success: true });
@@ -79,6 +170,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ success: false, error: error.message });
     });
 
+    return true;
+  }
+
+  if (request.action === 'DEEPSEEK_PROXY_FETCH') {
+    const { endpoint, headers, reqBody } = request.payload;
+    fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(reqBody)
+    })
+      .then(async (res) => {
+        const text = await res.text();
+        sendResponse({ ok: res.ok, status: res.status, text });
+      })
+      .catch((err) => {
+        sendResponse({ ok: false, error: err.message });
+      });
     return true;
   }
 

@@ -1,28 +1,111 @@
 import React, { useEffect, useState } from 'react';
-import { Form, Input, Button, Select, Card, Typography, message, Divider, Space, Modal, Switch } from 'antd';
-import { Save, CloudUpload, CloudDownload } from 'lucide-react';
+import { Form, Input, InputNumber, Button, Select, Card, Typography, message, Divider, Space, Modal, Switch, Alert, Tag, Segmented } from 'antd';
+import { Save, CloudUpload, CloudDownload, Sparkles, ExternalLink, RefreshCw, Zap, Key } from 'lucide-react';
 import { getSettings, saveSettings, useSettings, type Settings } from '../lib/settings';
 import { syncToGithub, syncFromGithub } from '../lib/github';
 import { translate } from '../lib/localization';
+import { testAIConnection, type AITestResult } from '../lib/translator';
+import { beginChatGPTLogin, checkChatGPTConnection, listChatGPTModels, savePairingCode, type ChatGPTStatus } from '../lib/chatgptCompanion';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
 
 export const SettingsPage: React.FC = () => {
-  const [form] = Form.useForm<any>();
+  const [form] = Form.useForm<Settings>();
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [pulling, setPulling] = useState(false);
+  const [fetchingToken, setFetchingToken] = useState(false);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [testingAi, setTestingAi] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState<AITestResult | null>(null);
+  const [webModelsList, setWebModelsList] = useState<{ value: string; label: string }[]>([]);
+  const [pairingCode, setPairingCode] = useState('');
+  const [chatGPTStatus, setChatGPTStatus] = useState<ChatGPTStatus | null>(null);
   const [aiProvider, setAiProvider] = useState<Settings['ai_provider']>('none');
+  const [openaiAuthType, setOpenaiAuthType] = useState<'chatgpt_web' | 'api_key'>('chatgpt_web');
+  const [deepseekAuthType, setDeepseekAuthType] = useState<'api_key' | 'web_token' | 'local_proxy'>('local_proxy');
 
   const settings = useSettings();
   const currentLang = settings.language || 'vi';
+  const nativeInstallCommand = `npm run chatgpt:install-host -- ${typeof chrome !== 'undefined' ? chrome.runtime.id : '<extension-id>'}`;
+
+  const handleFetchChatGPTToken = async (newAccount = false) => {
+    setFetchingToken(true);
+    try {
+      if (pairingCode.trim()) await savePairingCode(pairingCode);
+      const url = await beginChatGPTLogin(newAccount);
+      await chrome.tabs.create({ url });
+      message.info(currentLang === 'vi' ? 'Hoàn tất đăng nhập trong tab mới, sau đó bấm Kiểm tra kết nối.' : 'Finish signing in in the new tab, then check the connection.');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : translate('chatgptFetchFailed', currentLang));
+    } finally {
+      setFetchingToken(false);
+    }
+  };
+
+  const handleFetchChatGPTModels = async () => {
+    setFetchingModels(true);
+    try {
+      const models = await listChatGPTModels();
+      if (models && models.length > 0) {
+        setWebModelsList(models);
+        if (!models.some((model) => model.value === form.getFieldValue('chatgpt_model'))) {
+          form.setFieldValue('chatgpt_model', models[0].value);
+          await saveSettings({ chatgpt_model: models[0].value });
+        }
+        message.success(currentLang === 'vi' ? `Đã tìm thấy ${models.length} model từ ChatGPT!` : `Found ${models.length} models from ChatGPT!`);
+      } else {
+        message.warning(currentLang === 'vi' ? 'Không thể lấy danh sách model tự động. Hãy chọn hoặc tự nhập tên model bên dưới.' : 'Could not fetch models automatically. Please select or type below.');
+      }
+    } catch {
+      message.error(currentLang === 'vi' ? 'Lỗi khi tải danh sách model.' : 'Error loading models.');
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
+  const handleCheckChatGPT = async () => {
+    try {
+      if (pairingCode.trim()) await savePairingCode(pairingCode);
+      const status = await checkChatGPTConnection();
+      setChatGPTStatus(status);
+      if (status.error) message.error(status.error);
+      else if (status.status === 'connected') message.success(currentLang === 'vi' ? 'Đã kết nối ChatGPT.' : 'ChatGPT connected.');
+    } catch (error) { message.error(error instanceof Error ? error.message : 'Connection failed'); }
+  };
+
+  const handleTestAI = async () => {
+    const currentValues = form.getFieldsValue();
+    setTestingAi(true);
+    setAiTestResult(null);
+    try {
+      const res = await testAIConnection(currentValues);
+      setAiTestResult(res);
+      if (res.success) {
+        message.success(res.message);
+      } else {
+        message.error(res.message);
+      }
+    } catch (err) {
+      const errorResult: AITestResult = {
+        success: false,
+        message: err instanceof Error ? err.message : translate('testAiFailed', currentLang)
+      };
+      setAiTestResult(errorResult);
+      message.error(errorResult.message);
+    } finally {
+      setTestingAi(false);
+    }
+  };
 
   useEffect(() => {
     const loadData = async () => {
       const data = await getSettings();
       form.setFieldsValue(data);
       setAiProvider(data.ai_provider);
+      setOpenaiAuthType(data.openai_auth_type || (data.openai_api_key ? 'api_key' : 'chatgpt_web'));
+      setDeepseekAuthType(data.deepseek_auth_type || 'api_key');
     };
     loadData();
   }, [form]);
@@ -37,7 +120,7 @@ export const SettingsPage: React.FC = () => {
     try {
       await saveSettings(values);
       message.success(translate('saveSuccess', currentLang));
-    } catch (error) {
+    } catch {
       message.error(translate('saveFailed', currentLang));
     } finally {
       setLoading(false);
@@ -57,8 +140,8 @@ export const SettingsPage: React.FC = () => {
       await saveSettings(values);
       await syncToGithub();
       message.success(translate('syncSuccess', currentLang));
-    } catch (error: any) {
-      message.error(error.message || translate('syncFailed', currentLang));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : translate('syncFailed', currentLang));
     } finally {
       setSyncing(false);
     }
@@ -83,8 +166,8 @@ export const SettingsPage: React.FC = () => {
           await saveSettings(values);
           await syncFromGithub();
           message.success(translate('pullSuccess', currentLang));
-        } catch (error: any) {
-          message.error(error.message || translate('pullFailed', currentLang));
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : translate('pullFailed', currentLang));
         } finally {
           setPulling(false);
         }
@@ -112,6 +195,12 @@ export const SettingsPage: React.FC = () => {
             if (changedValues.ai_provider) {
               setAiProvider(changedValues.ai_provider);
             }
+            if (changedValues.openai_auth_type) {
+              setOpenaiAuthType(changedValues.openai_auth_type);
+            }
+            if (changedValues.deepseek_auth_type) {
+              setDeepseekAuthType(changedValues.deepseek_auth_type);
+            }
           }}
         >
           <Form.Item name="theme" label={translate('appTheme', currentLang)}>
@@ -133,6 +222,14 @@ export const SettingsPage: React.FC = () => {
             <Switch />
           </Form.Item>
 
+          <Form.Item
+            name="daily_review_goal"
+            label={currentLang === 'vi' ? 'Mục tiêu ôn tập mỗi ngày' : 'Daily review goal'}
+            rules={[{ type: 'number', min: 1, max: 100, message: currentLang === 'vi' ? 'Chọn từ 1 đến 100.' : 'Choose 1 to 100.' }]}
+          >
+            <InputNumber min={1} max={100} style={{ width: 160 }} addonAfter={currentLang === 'vi' ? 'lượt ôn' : 'reviews'} />
+          </Form.Item>
+
           <Divider />
           <Title level={4}>{translate('aiProviderTitle', currentLang)}</Title>
           <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
@@ -143,6 +240,7 @@ export const SettingsPage: React.FC = () => {
             <Select>
               <Option value="none">{translate('providerNone', currentLang)}</Option>
               <Option value="gemini">{translate('providerGemini', currentLang)}</Option>
+              <Option value="deepseek">{translate('providerDeepSeek', currentLang)}</Option>
               <Option value="openai">{translate('providerOpenAI', currentLang)}</Option>
               <Option value="ollama">{translate('providerOllama', currentLang)}</Option>
             </Select>
@@ -150,31 +248,389 @@ export const SettingsPage: React.FC = () => {
 
           {aiProvider === 'gemini' && (
             <>
-              <Form.Item name="gemini_api_key" label={`${translate('providerGemini', currentLang)} ${translate('apiKeyLabel', currentLang)}`} rules={[{ required: true }]}>
+              <Form.Item
+                name="gemini_api_key"
+                label={`${translate('providerGemini', currentLang)} ${translate('apiKeyLabel', currentLang)}`}
+                rules={[{ required: true }]}
+                extra={
+                  <div style={{ marginTop: 6, fontSize: 13, color: '#64748b' }}>
+                    {currentLang === 'vi' ? (
+                      <>
+                        💡 Lấy API Key miễn phí tại{' '}
+                        <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>
+                          Google AI Studio (aistudio.google.com) ↗
+                        </a>{' '}
+                        (Hoàn toàn miễn phí, 1,500 lượt/ngày, không cần thẻ tín dụng)
+                      </>
+                    ) : (
+                      <>
+                        💡 Get a free API Key at{' '}
+                        <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>
+                          Google AI Studio (aistudio.google.com) ↗
+                        </a>{' '}
+                        (Free tier, 1,500 requests/day, no credit card required)
+                      </>
+                    )}
+                  </div>
+                }
+              >
                 <Input.Password placeholder="Enter your Gemini API Key" />
               </Form.Item>
               <Form.Item name="gemini_model" label={currentLang === 'vi' ? 'Mô hình Gemini (Model)' : 'Gemini Model'} initialValue="gemini-2.5-flash-lite">
                 <Select>
-                  <Option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (Free Tier, Fast)</Option>
-                  <Option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Free Tier, Newest)</Option>
-                  <Option value="gemini-2.0-flash">Gemini 2.0 Flash (Stable, requires billing)</Option>
-                  <Option value="gemini-3.5-flash">Gemini 3.5 Flash (Production, requires billing)</Option>
-                  <Option value="gemini-1.5-pro">Gemini 1.5 Pro (Advanced Reasoning, requires billing)</Option>
+                  <Option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (Free Tier - Siêu nhanh & Nhẹ ⚡)</Option>
+                  <Option value="gemini-2.5-flash">Gemini 2.5 Flash (Free Tier - Khuyên dùng, Thông minh & Chuẩn xác ✨)</Option>
+                  <Option value="gemini-2.0-flash">Gemini 2.0 Flash (Free Tier - Rất ổn định)</Option>
+                  <Option value="gemini-1.5-flash">Gemini 1.5 Flash (Free Tier - Tiêu chuẩn)</Option>
+                  <Option value="gemini-2.5-pro">Gemini 2.5 Pro (Nâng cao - Dịch chuyên sâu & Suy luận)</Option>
                 </Select>
               </Form.Item>
             </>
           )}
 
-          {aiProvider === 'openai' && (
-            <Form.Item name="openai_api_key" label={`${translate('providerOpenAI', currentLang)} ${translate('apiKeyLabel', currentLang)}`} rules={[{ required: true }]}>
-              <Input.Password placeholder="Enter your OpenAI API Key" />
-            </Form.Item>
+          {aiProvider === 'deepseek' && (
+            <Card style={{ background: 'rgba(59, 130, 246, 0.04)', border: '1px solid rgba(59, 130, 246, 0.2)', marginBottom: 24, borderRadius: 12 }}>
+              <Form.Item name="deepseek_auth_type" label={translate('deepseekAuthType', currentLang)} style={{ marginBottom: 16 }}>
+                <Segmented
+                  block
+                  value={deepseekAuthType}
+                  onChange={(val) => {
+                    const auth = val as 'api_key' | 'web_token' | 'local_proxy';
+                    setDeepseekAuthType(auth);
+                    form.setFieldsValue({ deepseek_auth_type: auth });
+                  }}
+                  options={[
+                    {
+                      label: (
+                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 600 }}>
+                          <Zap size={15} color="#2563eb" />
+                          {translate('authTypeDeepSeekLocalProxy', currentLang)}
+                        </span>
+                      ),
+                      value: 'local_proxy'
+                    },
+                    {
+                      label: (
+                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 600 }}>
+                          <Key size={15} color="#3b82f6" />
+                          {translate('authTypeDeepSeekApiKey', currentLang)}
+                        </span>
+                      ),
+                      value: 'api_key'
+                    },
+                    {
+                      label: (
+                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 600 }}>
+                          <Sparkles size={15} color="#0284c7" />
+                          {translate('authTypeDeepSeekWeb', currentLang)}
+                        </span>
+                      ),
+                      value: 'web_token'
+                    }
+                  ]}
+                />
+              </Form.Item>
+
+              {deepseekAuthType === 'local_proxy' && (
+                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                  <Text type="secondary" style={{ fontSize: 13, lineHeight: '1.5', display: 'block' }}>
+                    {translate('deepseekProxyDesc', currentLang)}
+                  </Text>
+                  <Form.Item
+                    name="deepseek_proxy_url"
+                    label={translate('deepseekProxyUrlLabel', currentLang)}
+                    rules={[{ required: true }]}
+                    initialValue="http://127.0.0.1:9655"
+                    extra={
+                      <div style={{ marginTop: 6, fontSize: 13, color: '#64748b' }}>
+                        {currentLang === 'vi' ? (
+                          <>
+                            💡 Khởi động server bằng lệnh: <code style={{ color: '#2563eb', fontWeight: 600 }}>ALLOW_BROWSER_ORIGIN=1 npm start</code> trong thư mục <b>FreeDeepseekAPI</b>.
+                          </>
+                        ) : (
+                          <>
+                            💡 Start server with: <code style={{ color: '#2563eb', fontWeight: 600 }}>ALLOW_BROWSER_ORIGIN=1 npm start</code> inside <b>FreeDeepseekAPI</b>.
+                          </>
+                        )}
+                      </div>
+                    }
+                  >
+                    <Input placeholder="http://127.0.0.1:9655" />
+                  </Form.Item>
+                  <Form.Item name="deepseek_model" label={currentLang === 'vi' ? 'Mô hình DeepSeek (Model)' : 'DeepSeek Model'} initialValue="deepseek-chat" style={{ marginBottom: 0 }}>
+                    <Select>
+                      <Option value="deepseek-chat">DeepSeek-V3 / Flash (deepseek-chat - Nhanh & Thông minh ⚡)</Option>
+                      <Option value="deepseek-reasoner">DeepSeek-R1 (deepseek-reasoner - Suy luận sâu & Phân tích ngữ pháp 🧠)</Option>
+                    </Select>
+                  </Form.Item>
+                </Space>
+              )}
+
+              {deepseekAuthType === 'api_key' && (
+                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                  <Form.Item
+                    name="deepseek_api_key"
+                    label={`${translate('providerDeepSeek', currentLang)} ${translate('apiKeyLabel', currentLang)}`}
+                    rules={[{ required: true }]}
+                    extra={
+                      <div style={{ marginTop: 6, fontSize: 13, color: '#64748b' }}>
+                        {currentLang === 'vi' ? (
+                          <>
+                            💡 Lấy API Key tại{' '}
+                            <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>
+                              DeepSeek Open Platform (platform.deepseek.com) ↗
+                            </a>{' '}
+                            (Chi phí siêu rẻ ~$0.14 - $0.28 / 1 triệu tokens, tốc độ phản hồi tức thì)
+                          </>
+                        ) : (
+                          <>
+                            💡 Get API Key at{' '}
+                            <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>
+                              DeepSeek Open Platform (platform.deepseek.com) ↗
+                            </a>{' '}
+                            (Extremely cheap ~$0.14 - $0.28 / 1M tokens, ultra-fast responses)
+                          </>
+                        )}
+                      </div>
+                    }
+                  >
+                    <Input.Password placeholder="Enter your DeepSeek API Key (sk-...)" />
+                  </Form.Item>
+                  <Form.Item name="deepseek_model" label={currentLang === 'vi' ? 'Mô hình DeepSeek (Model)' : 'DeepSeek Model'} initialValue="deepseek-chat" style={{ marginBottom: 0 }}>
+                    <Select>
+                      <Option value="deepseek-chat">DeepSeek-V3 (deepseek-chat - Siêu nhanh, Khuyên dùng ⚡)</Option>
+                      <Option value="deepseek-reasoner">DeepSeek-R1 (deepseek-reasoner - Suy luận sâu & Phân tích ngữ pháp 🧠)</Option>
+                    </Select>
+                  </Form.Item>
+                </Space>
+              )}
+
+              {deepseekAuthType === 'web_token' && (
+                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                  <Text type="secondary" style={{ fontSize: 13, lineHeight: '1.5', display: 'block' }}>
+                    {translate('deepseekWebTokenDesc', currentLang)}
+                  </Text>
+                  <Form.Item
+                    name="deepseek_web_token"
+                    label="DeepSeek User/Bearer Token"
+                    rules={[{ required: true }]}
+                    extra={
+                      <div style={{ marginTop: 6, fontSize: 13, color: '#64748b' }}>
+                        {currentLang === 'vi' ? (
+                          <>
+                            🌐 Mở tab{' '}
+                            <a href="https://chat.deepseek.com/" target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>
+                              chat.deepseek.com ↗
+                            </a>{' '}
+                            → F12 (DevTools) → Application → Local Storage / Cookies → Sao chép token xác thực.
+                          </>
+                        ) : (
+                          <>
+                            🌐 Open{' '}
+                            <a href="https://chat.deepseek.com/" target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>
+                              chat.deepseek.com ↗
+                            </a>{' '}
+                            → F12 (DevTools) → Application → Local Storage / Cookies → Copy auth token.
+                          </>
+                        )}
+                      </div>
+                    }
+                  >
+                    <Input.Password placeholder="Enter userToken or Bearer token" />
+                  </Form.Item>
+                  <Form.Item name="deepseek_model" label={currentLang === 'vi' ? 'Mô hình DeepSeek (Model)' : 'DeepSeek Model'} initialValue="deepseek-chat" style={{ marginBottom: 0 }}>
+                    <Select>
+                      <Option value="deepseek-chat">DeepSeek-V3 (deepseek-chat)</Option>
+                      <Option value="deepseek-reasoner">DeepSeek-R1 (deepseek-reasoner)</Option>
+                    </Select>
+                  </Form.Item>
+                </Space>
+              )}
+            </Card>
+          )}
+
+          {(aiProvider === 'openai' || aiProvider === 'chatgpt_web') && (
+            <Card style={{ background: 'rgba(16, 185, 129, 0.04)', border: '1px solid rgba(16, 185, 129, 0.2)', marginBottom: 24, borderRadius: 12 }}>
+              <Form.Item name="openai_auth_type" label={translate('openaiAuthType', currentLang)} style={{ marginBottom: 16 }}>
+                <Segmented
+                  block
+                  value={openaiAuthType}
+                  onChange={(val) => {
+                    const auth = val as 'chatgpt_web' | 'api_key';
+                    setOpenaiAuthType(auth);
+                    form.setFieldsValue({ openai_auth_type: auth });
+                  }}
+                  options={[
+                    {
+                      label: (
+                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 600 }}>
+                          <Sparkles size={15} color="#10b981" />
+                          {translate('authTypeChatGPTWeb', currentLang)}
+                        </span>
+                      ),
+                      value: 'chatgpt_web'
+                    },
+                    {
+                      label: (
+                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 600 }}>
+                          <Key size={15} color="#8b5cf6" />
+                          {translate('authTypeApiKey', currentLang)}
+                        </span>
+                      ),
+                      value: 'api_key'
+                    }
+                  ]}
+                />
+              </Form.Item>
+
+              {openaiAuthType === 'chatgpt_web' ? (
+                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                  <Text type="secondary" style={{ fontSize: 13, lineHeight: '1.5', display: 'block' }}>
+                    {translate('chatgptTokenDesc', currentLang)}
+                  </Text>
+                  <Text code copyable={{ text: nativeInstallCommand }}>{nativeInstallCommand}</Text>
+                  <Alert
+                    type="info"
+                    showIcon
+                    message={currentLang === 'vi' ? 'Tài khoản tổ chức bị chặn?' : 'Organization access denied?'}
+                    description={currentLang === 'vi'
+                      ? <>Quản trị viên cấp tổ chức cần cho phép ứng dụng trong OpenAI Admin Console → External access. Bạn cũng có thể chọn “Đăng nhập tài khoản khác” bằng tài khoản cá nhân đủ điều kiện. <a href="https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt" target="_blank" rel="noreferrer">Hướng dẫn OpenAI</a>.</>
+                      : <>A global admin must allow the app in OpenAI Admin Console → External access. You can also choose “Use another account” with an eligible personal account. <a href="https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt" target="_blank" rel="noreferrer">OpenAI guidance</a>.</>}
+                  />
+                  <details>
+                    <summary>{currentLang === 'vi' ? 'Kết nối thủ công (tùy chọn)' : 'Manual connection (optional)'}</summary>
+                    <Text type="secondary">{currentLang === 'vi' ? 'Chạy npm run chatgpt:companion rồi nhập mã ghép nối:' : 'Run npm run chatgpt:companion and enter its pairing code:'}</Text>
+                    <Input.Password
+                      value={pairingCode}
+                      onChange={(event) => setPairingCode(event.target.value)}
+                      placeholder={currentLang === 'vi' ? 'Mã ghép nối từ Terminal' : 'Pairing code from Terminal'}
+                    />
+                  </details>
+                  {chatGPTStatus && <Alert type={chatGPTStatus.status === 'connected' ? 'success' : 'info'} showIcon message={`${chatGPTStatus.status}${chatGPTStatus.email ? ` · ${chatGPTStatus.email}` : ''}`} />}
+                  <Space wrap>
+                    <Button
+                      type="primary"
+                      icon={<Sparkles size={16} />}
+                      loading={fetchingToken}
+                      onClick={() => handleFetchChatGPTToken()}
+                      style={{ background: '#10b981', borderColor: '#10b981', borderRadius: 20, fontWeight: 600 }}
+                    >
+                      {translate('chatgptLoginOAuthBtn', currentLang)}
+                    </Button>
+                    <Button loading={fetchingToken} onClick={() => handleFetchChatGPTToken(true)}>
+                      {currentLang === 'vi' ? 'Đăng nhập tài khoản khác' : 'Use another account'}
+                    </Button>
+                    <Button onClick={handleCheckChatGPT}>
+                      {currentLang === 'vi' ? 'Kiểm tra kết nối' : 'Check connection'}
+                    </Button>
+                    <Button
+                      icon={<RefreshCw size={16} />}
+                      loading={fetchingModels}
+                      onClick={() => handleFetchChatGPTModels()}
+                      style={{ borderRadius: 20 }}
+                    >
+                      {currentLang === 'vi' ? '🔄 Tự động tải Models' : '🔄 Auto-detect Models'}
+                    </Button>
+                    <Button
+                      icon={<ExternalLink size={16} />}
+                      onClick={() => window.open('https://chatgpt.com', '_blank')}
+                      style={{ borderRadius: 20 }}
+                    >
+                      {translate('chatgptOpenWebBtn', currentLang)}
+                    </Button>
+                  </Space>
+                  <Form.Item name="chatgpt_model" label={currentLang === 'vi' ? 'Mô hình ChatGPT (Model)' : 'ChatGPT Model'} style={{ marginBottom: 0 }}>
+                    <Select showSearch placeholder={currentLang === 'vi' ? 'Đăng nhập rồi tải danh sách model' : 'Sign in and load models'}>
+                      {webModelsList.length > 0 ? (
+                        webModelsList.map(m => (
+                          <Option key={m.value} value={m.value}>{m.label}</Option>
+                        ))
+                      ) : (
+                        <Option value="gpt-6.1-sol">GPT-6.1 Sol</Option>
+                      )}
+                    </Select>
+                  </Form.Item>
+                </Space>
+              ) : (
+                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                  <Form.Item name="openai_api_key" label={`${translate('providerOpenAI', currentLang)} ${translate('apiKeyLabel', currentLang)}`} rules={[{ required: true }]}>
+                    <Input.Password placeholder="Enter your OpenAI API Key (sk-...)" />
+                  </Form.Item>
+                  <Form.Item name="openai_model" label={currentLang === 'vi' ? 'Mô hình OpenAI (Model)' : 'OpenAI Model'} initialValue="gpt-4o-mini" style={{ marginBottom: 0 }}>
+                    <Select showSearch placeholder="Chọn hoặc nhập tên model...">
+                      <Option value="gpt-4o-mini">GPT-4o mini (Fast & Recommended)</Option>
+                      <Option value="gpt-5.6-terra-wm">GPT-5.6 Terra WM (gpt-5.6-terra-wm)</Option>
+                      <Option value="gpt-5.6">GPT-5.6 (Next-Gen Model - Newest)</Option>
+                      <Option value="gpt-6.0">GPT-6.0 (Flagship Model - Newest)</Option>
+                      <Option value="gpt-4o">GPT-4o (Omni)</Option>
+                      <Option value="gpt-4.5">GPT-4.5 (High Capability)</Option>
+                      <Option value="o3-mini">o3-mini (Reasoning Model)</Option>
+                      <Option value="o1">o1 (Advanced Reasoning)</Option>
+                    </Select>
+                  </Form.Item>
+                </Space>
+              )}
+            </Card>
           )}
 
           {aiProvider === 'ollama' && (
             <Form.Item name="ollama_url" label={translate('ollamaUrlLabel', currentLang)} rules={[{ required: true }]} initialValue="http://localhost:11434">
               <Input placeholder="e.g. http://localhost:11434" />
             </Form.Item>
+          )}
+
+          {aiProvider !== 'none' && (
+            <div style={{ marginTop: 8, marginBottom: 24, padding: '16px', background: 'rgba(139, 92, 246, 0.05)', borderRadius: 12, border: '1px solid rgba(139, 92, 246, 0.2)' }}>
+              <Space direction="vertical" style={{ width: '100%' }} size="small">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                  <div>
+                    <Text strong style={{ fontSize: 14, display: 'block' }}>
+                      {translate('testAiTitle', currentLang)}
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {translate('testAiDesc', currentLang)}
+                    </Text>
+                  </div>
+                  <Button
+                    type="primary"
+                    icon={<Zap size={16} />}
+                    loading={testingAi}
+                    onClick={handleTestAI}
+                    style={{ background: '#8b5cf6', borderColor: '#8b5cf6', borderRadius: 20, fontWeight: 600 }}
+                  >
+                    {translate('testAiBtn', currentLang)}
+                  </Button>
+                </div>
+
+                {aiTestResult && (
+                  <Alert
+                    style={{ marginTop: 12, borderRadius: 8 }}
+                    type={aiTestResult.success ? 'success' : 'error'}
+                    showIcon
+                    message={
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                        <span style={{ fontWeight: 600 }}>{aiTestResult.message}</span>
+                        {aiTestResult.latencyMs !== undefined && (
+                          <Tag color={aiTestResult.success ? 'green' : 'red'}>
+                            {aiTestResult.latencyMs}ms
+                          </Tag>
+                        )}
+                      </div>
+                    }
+                    description={
+                      aiTestResult.sampleResponse ? (
+                        <div style={{ marginTop: 6 }}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>{translate('testAiResponse', currentLang)} </Text>
+                          <Text style={{ fontSize: 13, fontStyle: 'italic', display: 'block', background: 'rgba(0,0,0,0.03)', padding: '6px 10px', borderRadius: 6, marginTop: 4 }}>
+                            "{aiTestResult.sampleResponse}"
+                          </Text>
+                        </div>
+                      ) : undefined
+                    }
+                  />
+                )}
+              </Space>
+            </div>
           )}
 
           <Divider />
