@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Row, Col, Card, Statistic, Typography, Tooltip, Table, Tag, Progress } from 'antd';
-import { BookOpen, Calendar, CheckCircle, AlertCircle, Award } from 'lucide-react';
+import { Row, Col, Card, Statistic, Typography, Tooltip, Table, Tag, Progress, Button, Spin } from 'antd';
+import { BookOpen, Calendar, CheckCircle, AlertCircle, Award, Sparkles, RefreshCw } from 'lucide-react';
 import { ActivityCalendar } from 'react-activity-calendar';
 import { db, getWordsToReview, getFrequentlyMissedWords, getMasteryStats, type Word } from '../lib/db';
 import { useSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
+import { getAIDailyInsight, type AIDailyInsight } from '../lib/translator';
 
 const { Title, Text } = Typography;
 
@@ -23,6 +24,10 @@ export const Dashboard: React.FC = () => {
   const [todayReviews, setTodayReviews] = useState(0);
   const [missedWords, setMissedWords] = useState<Word[]>([]);
   const [masteryStats, setMasteryStats] = useState({ new: 0, learning: 0, reviewing: 0, mastered: 0, total: 0 });
+
+  // AI Daily Study Insights state
+  const [aiInsight, setAiInsight] = useState<AIDailyInsight | null>(null);
+  const [isLoadingInsight, setIsLoadingInsight] = useState(false);
 
   const settings = useSettings();
   const currentLang = settings.language || 'vi';
@@ -105,21 +110,117 @@ export const Dashboard: React.FC = () => {
       }
 
       setActivityData(data);
+
+      getAIDailyInsight({
+        totalWords: total,
+        missedWords: missed.map(w => w.word),
+        masteredWordsCount: stats.mastered
+      }).then(res => setAiInsight(res)).catch(() => {});
     };
     
     fetchData();
   }, []);
 
+  const loadAIInsight = async () => {
+    setIsLoadingInsight(true);
+    try {
+      const missedNames = missedWords.map(w => w.word);
+      const insight = await getAIDailyInsight({
+        totalWords,
+        missedWords: missedNames,
+        masteredWordsCount: masteryStats.mastered
+      });
+      setAiInsight(insight);
+    } catch {
+      // ignore
+    } finally {
+      setIsLoadingInsight(false);
+    }
+  };
+
   return (
     <div style={{ animation: 'fadeIn 0.5s ease', display: 'flex', flexDirection: 'column', gap: 24, paddingBottom: 24 }}>
-      <div>
-        <Text type="secondary" style={{ fontSize: 16, letterSpacing: '0.5px', textTransform: 'uppercase', fontWeight: 600 }}>
-          {translate('welcomeBack', currentLang)}
-        </Text>
-        <Title level={2} style={{ margin: '4px 0 0 0', fontWeight: 700 }}>
-          {translate('whatToLearn', currentLang)}
-        </Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <Text type="secondary" style={{ fontSize: 16, letterSpacing: '0.5px', textTransform: 'uppercase', fontWeight: 600 }}>
+            {translate('welcomeBack', currentLang)}
+          </Text>
+          <Title level={2} style={{ margin: '4px 0 0 0', fontWeight: 700 }}>
+            {translate('whatToLearn', currentLang)}
+          </Title>
+        </div>
       </div>
+
+      {/* AI Daily Study Insights Card */}
+      <Card
+        className="glass-card"
+        bordered={false}
+        style={{
+          borderRadius: 16,
+          background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, rgba(236, 72, 153, 0.08) 100%)',
+          border: '1px solid rgba(139, 92, 246, 0.2)',
+          boxShadow: '0 8px 24px rgba(139, 92, 246, 0.06)'
+        }}
+        bodyStyle={{ padding: 18 }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ 
+              background: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)', 
+              color: '#fff', 
+              padding: '3px 8px', 
+              borderRadius: 8, 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 4, 
+              fontSize: 11, 
+              fontWeight: 700 
+            }}>
+              <Sparkles size={13} /> AI ENGLISH COACH
+            </span>
+            <span style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+              {translate('aiCoachTitle', currentLang)}
+            </span>
+          </div>
+
+          <Button
+            type="text"
+            size="small"
+            icon={<RefreshCw size={13} className={isLoadingInsight ? 'animate-spin' : ''} />}
+            loading={isLoadingInsight}
+            onClick={loadAIInsight}
+            style={{ borderRadius: 6, fontSize: 12, color: '#8b5cf6' }}
+          >
+            {translate('aiCoachRefresh', currentLang)}
+          </Button>
+        </div>
+
+        {isLoadingInsight ? (
+          <div style={{ padding: '12px 0', textAlign: 'center' }}>
+            <Spin size="small" />
+            <span style={{ marginLeft: 8, fontSize: 13, color: '#8b5cf6' }}>{translate('aiCoachLoading', currentLang)}</span>
+          </div>
+        ) : aiInsight ? (
+          <div>
+            <div style={{ fontWeight: 600, color: '#334155', fontSize: 14, marginBottom: 4 }}>
+              {aiInsight.greeting}
+            </div>
+            <p style={{ margin: '0 0 10px 0', fontSize: 13, color: '#475569', lineHeight: '1.5' }}>
+              💡 <b>Mẹo:</b> {aiInsight.tip}
+            </p>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ fontSize: 12, color: '#7c3aed', background: 'rgba(139, 92, 246, 0.1)', padding: '4px 10px', borderRadius: 6, fontWeight: 600 }}>
+                🎯 Trọng tâm: {aiInsight.recommendedFocus}
+              </div>
+              {aiInsight.example && (
+                <div style={{ fontSize: 12, color: '#64748b', fontStyle: 'italic' }}>
+                  "{aiInsight.example}"
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </Card>
 
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={8}>

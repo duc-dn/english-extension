@@ -6,6 +6,7 @@ import { syncToGithub, syncFromGithub } from '../lib/github';
 import { translate } from '../lib/localization';
 import { testAIConnection, type AITestResult } from '../lib/translator';
 import { beginChatGPTLogin, checkChatGPTConnection, listChatGPTModels, savePairingCode, type ChatGPTStatus } from '../lib/chatgptCompanion';
+import { isDeepSeekProxyActive, pingDeepSeekProxy, toggleDeepSeekProxy, type DeepSeekProxyHealth } from '../lib/deepseekProxy';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -25,10 +26,41 @@ export const SettingsPage: React.FC = () => {
   const [aiProvider, setAiProvider] = useState<Settings['ai_provider']>('none');
   const [openaiAuthType, setOpenaiAuthType] = useState<'chatgpt_web' | 'api_key'>('chatgpt_web');
   const [deepseekAuthType, setDeepseekAuthType] = useState<'api_key' | 'web_token' | 'local_proxy'>('local_proxy');
+  const [proxyHealth, setProxyHealth] = useState<DeepSeekProxyHealth | null>(null);
+  const [isPingingProxy, setIsPingingProxy] = useState(false);
 
   const settings = useSettings();
   const currentLang = settings.language || 'vi';
   const nativeInstallCommand = `npm run chatgpt:install-host -- ${typeof chrome !== 'undefined' ? chrome.runtime.id : '<extension-id>'}`;
+
+  const isProxyActive = isDeepSeekProxyActive(settings);
+
+  useEffect(() => {
+    pingDeepSeekProxy(settings.deepseek_proxy_url).then(setProxyHealth);
+  }, [settings.deepseek_proxy_url, isProxyActive]);
+
+  const handleToggleProxy = async (checked: boolean) => {
+    try {
+      const updated = await toggleDeepSeekProxy(checked);
+      setAiProvider(updated.ai_provider);
+      form.setFieldsValue({
+        ai_provider: updated.ai_provider,
+        deepseek_auth_type: updated.deepseek_auth_type,
+        deepseek_proxy_url: updated.deepseek_proxy_url,
+        deepseek_model: updated.deepseek_model
+      });
+      if (checked) {
+        setDeepseekAuthType('local_proxy');
+        message.success(translate('deepseekProxyEnableSuccess', currentLang));
+      } else {
+        message.info(translate('deepseekProxyDisableSuccess', currentLang));
+      }
+      pingDeepSeekProxy(updated.deepseek_proxy_url).then(setProxyHealth);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Lỗi khi bật/tắt proxy';
+      message.error(msg);
+    }
+  };
 
   const handleFetchChatGPTToken = async (newAccount = false) => {
     setFetchingToken(true);
@@ -235,6 +267,79 @@ export const SettingsPage: React.FC = () => {
           <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
             {translate('aiProviderDesc', currentLang)}
           </Text>
+
+          {/* Quick DeepSeek Local Proxy Card */}
+          <div style={{
+            background: isProxyActive 
+              ? 'linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(59, 130, 246, 0.04) 100%)' 
+              : 'rgba(241, 245, 249, 0.6)',
+            border: `1px solid ${isProxyActive ? 'rgba(37, 99, 235, 0.25)' : 'rgba(226, 232, 240, 0.8)'}`,
+            borderRadius: 14,
+            padding: 16,
+            marginBottom: 20
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ 
+                  background: isProxyActive ? '#2563eb' : '#94a3b8', 
+                  borderRadius: 10, 
+                  padding: 8, 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center' 
+                }}>
+                  <Zap size={20} color="#fff" />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <strong style={{ fontSize: 16, color: '#1e293b' }}>
+                      {translate('deepseekProxyQuickCardTitle', currentLang)}
+                    </strong>
+                    <Tag color={isProxyActive ? (proxyHealth?.online ? 'success' : 'error') : 'default'} style={{ borderRadius: 10 }}>
+                      {isProxyActive ? (proxyHealth?.online ? `Online (${proxyHealth.latencyMs}ms)` : 'Offline') : 'Tắt / Inactive'}
+                    </Tag>
+                  </div>
+                  <Text type="secondary" style={{ fontSize: 13, display: 'block', marginTop: 2 }}>
+                    {translate('deepseekProxyQuickCardDesc', currentLang)}
+                  </Text>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Button
+                  size="small"
+                  icon={<RefreshCw size={12} className={isPingingProxy ? 'animate-spin' : ''} />}
+                  loading={isPingingProxy}
+                  onClick={async () => {
+                    setIsPingingProxy(true);
+                    const res = await pingDeepSeekProxy(form.getFieldValue('deepseek_proxy_url') || settings.deepseek_proxy_url);
+                    setProxyHealth(res);
+                    setIsPingingProxy(false);
+                    if (res.online) {
+                      message.success(`${translate('deepseekProxyPingSuccess', currentLang)} ${res.latencyMs}ms`);
+                    } else {
+                      message.warning(translate('deepseekProxyPingFailed', currentLang));
+                    }
+                  }}
+                  style={{ borderRadius: 6, fontSize: 12 }}
+                >
+                  {translate('deepseekProxyPingBtn', currentLang)}
+                </Button>
+                <Switch
+                  checked={isProxyActive}
+                  onChange={handleToggleProxy}
+                  style={{ background: isProxyActive ? '#2563eb' : undefined }}
+                />
+              </div>
+            </div>
+
+            {isProxyActive && !proxyHealth?.online && (
+              <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px', marginTop: 14, fontSize: 12, color: '#92400e' }}>
+                <div style={{ fontWeight: 700, marginBottom: 2 }}>⚠️ Máy chủ local chưa phản hồi:</div>
+                Chạy lệnh: <code style={{ color: '#2563eb', fontWeight: 700 }}>ALLOW_BROWSER_ORIGIN=1 npm start</code> trong thư mục <b>FreeDeepseekAPI</b>.
+              </div>
+            )}
+          </div>
 
           <Form.Item name="ai_provider" label={translate('selectProvider', currentLang)}>
             <Select>

@@ -296,6 +296,11 @@ export async function addGrammarNote(note: Omit<GrammarNote, 'id' | 'created_at'
   return newNote;
 }
 
+export async function updateGrammarNote(id: string, note: Partial<Omit<GrammarNote, 'id' | 'created_at'>>) {
+  await db.grammar_notes.update(id, note);
+  triggerAutoSync();
+}
+
 export async function deleteGrammarNote(id: string) {
   await db.grammar_notes.delete(id);
   triggerAutoSync();

@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Table, Button, Tag, Space, Modal, Form, Input, message, Tooltip, Typography, Select } from 'antd';
-import { Plus, Trash2, Wand2, Volume2, Pencil, Download, Upload, Mic, ExternalLink } from 'lucide-react';
+import { Table, Button, Tag, Space, Modal, Form, Input, message, Tooltip, Typography, Select, Checkbox, Spin } from 'antd';
+import { Plus, Trash2, Wand2, Volume2, Pencil, Download, Upload, Mic, ExternalLink, Sparkles } from 'lucide-react';
 import { db, addWord, type Word, deleteWord, updateWord, importWords, DuplicateWordError } from '../lib/db';
 import { buildVocabularyCsv, parseVocabularyCsv } from '../lib/vocabularyCsv';
-import { fetchBasicMeaning } from '../lib/translator';
+import { fetchBasicMeaning, generateVocabularyByTopicWithAI, type AIGeneratedWord } from '../lib/translator';
 import { playAudio } from '../lib/audio';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useSettings } from '../lib/settings';
@@ -22,6 +22,15 @@ export const VocabularyManager: React.FC = () => {
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+
+  // AI Topic Vocabulary Generator State
+  const [isAiGenModalOpen, setIsAiGenModalOpen] = useState(false);
+  const [aiTopic, setAiTopic] = useState('');
+  const [aiCount, setAiCount] = useState<number>(5);
+  const [aiLevel, setAiLevel] = useState<string>('B1-B2');
+  const [isGeneratingWords, setIsGeneratingWords] = useState(false);
+  const [generatedWords, setGeneratedWords] = useState<AIGeneratedWord[]>([]);
+  const [selectedWordIndices, setSelectedWordIndices] = useState<Set<number>>(new Set());
 
   // Speaking state
   const [speakingWord, setSpeakingWord] = useState<string | null>(null);
@@ -125,6 +134,73 @@ export const VocabularyManager: React.FC = () => {
     } finally {
       setIsImporting(false);
       if (importInputRef.current) importInputRef.current.value = '';
+    }
+  };
+
+  const handleGenerateTopicWords = async () => {
+    if (!aiTopic.trim()) {
+      message.warning(currentLang === 'vi' ? 'Vui lòng nhập chủ đề từ vựng cần sinh.' : 'Please enter a topic.');
+      return;
+    }
+    setIsGeneratingWords(true);
+    try {
+      const wordsRes = await generateVocabularyByTopicWithAI(aiTopic.trim(), aiCount, aiLevel);
+      setGeneratedWords(wordsRes);
+      setSelectedWordIndices(new Set(wordsRes.map((_, i) => i)));
+      if (wordsRes.length === 0) {
+        message.warning(currentLang === 'vi' ? 'AI không sinh được từ vựng nào. Hãy thử chủ đề khác.' : 'No words generated. Try another topic.');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (currentLang === 'vi' ? 'Lỗi khi sinh từ vựng bằng AI' : 'Failed to generate vocabulary');
+      message.error(msg);
+    } finally {
+      setIsGeneratingWords(false);
+    }
+  };
+
+  const handleSaveGeneratedWords = async () => {
+    const toSave = generatedWords.filter((_, idx) => selectedWordIndices.has(idx));
+    if (toSave.length === 0) {
+      message.warning(currentLang === 'vi' ? 'Vui lòng chọn ít nhất một từ để lưu.' : 'Please select at least one word.');
+      return;
+    }
+    try {
+      const importedList: Array<Omit<Word, 'id' | 'created_at' | 'review_level' | 'next_review'>> = toSave.map(w => ({
+        word: w.word,
+        phonetic: w.phonetic,
+        meaning: w.meaning,
+        description: w.description,
+        example: w.example,
+        tags: w.tags || [aiTopic.toLowerCase().replace(/\s+/g, '-')]
+      }));
+      const { added, duplicates } = await importWords(importedList);
+      message.success(
+        currentLang === 'vi'
+          ? `Đã lưu ${added} từ vựng vào sổ từ! ${duplicates > 0 ? `(Bỏ qua ${duplicates} từ trùng lặp)` : ''}`
+          : `Saved ${added} words to vocabulary! ${duplicates > 0 ? `(Skipped ${duplicates} duplicates)` : ''}`
+      );
+      setIsAiGenModalOpen(false);
+      setGeneratedWords([]);
+      setAiTopic('');
+    } catch {
+      message.error(currentLang === 'vi' ? 'Không thể lưu từ vựng' : 'Failed to save words');
+    }
+  };
+
+  const toggleSelectWord = (index: number) => {
+    setSelectedWordIndices(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedWordIndices.size === generatedWords.length) {
+      setSelectedWordIndices(new Set());
+    } else {
+      setSelectedWordIndices(new Set(generatedWords.map((_, i) => i)));
     }
   };
 
@@ -476,6 +552,19 @@ export const VocabularyManager: React.FC = () => {
             {currentLang === 'vi' ? 'Xuất CSV' : 'Export CSV'}
           </Button>
           <Button
+            icon={<Sparkles size={16} color="#8b5cf6" />}
+            onClick={() => setIsAiGenModalOpen(true)}
+            style={{
+              borderRadius: 20,
+              fontWeight: 600,
+              color: '#8b5cf6',
+              borderColor: 'rgba(139, 92, 246, 0.35)',
+              background: 'rgba(139, 92, 246, 0.06)'
+            }}
+          >
+            {translate('aiVocabGenerateBtn', currentLang)}
+          </Button>
+          <Button
             type="primary"
             size="large"
             style={{ borderRadius: 20, fontWeight: 600, background: 'linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%)', border: 'none', boxShadow: '0 4px 12px rgba(139, 92, 246, 0.25)', height: 44 }}
@@ -611,6 +700,201 @@ export const VocabularyManager: React.FC = () => {
             <Input placeholder="Ví dụ: it, verb, daily" style={{ borderRadius: 8 }} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Modal Sinh Từ Vựng Theo Chủ Đề Với AI */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Sparkles size={20} color="#8b5cf6" />
+            <span style={{ fontWeight: 800, fontSize: 18, color: '#1e293b' }}>
+              {translate('aiVocabModalTitle', currentLang)}
+            </span>
+          </div>
+        }
+        open={isAiGenModalOpen}
+        onCancel={() => setIsAiGenModalOpen(false)}
+        footer={null}
+        width={680}
+      >
+        <p style={{ color: '#64748b', fontSize: 13, margin: '8px 0 16px 0' }}>
+          {translate('aiVocabModalDesc', currentLang)}
+        </p>
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#334155', display: 'block', marginBottom: 4 }}>
+              {translate('aiVocabTopicLabel', currentLang)}
+            </span>
+            <Input
+              placeholder={translate('aiVocabTopicPlaceholder', currentLang)}
+              value={aiTopic}
+              onChange={(e) => setAiTopic(e.target.value)}
+              onPressEnter={handleGenerateTopicWords}
+              allowClear
+              style={{ borderRadius: 8 }}
+            />
+          </div>
+          <div style={{ width: 110 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#334155', display: 'block', marginBottom: 4 }}>
+              {translate('aiVocabCountLabel', currentLang)}
+            </span>
+            <Select
+              value={aiCount}
+              onChange={setAiCount}
+              style={{ width: '100%' }}
+              options={[
+                { value: 3, label: '3 từ' },
+                { value: 5, label: '5 từ' },
+                { value: 8, label: '8 từ' },
+                { value: 10, label: '10 từ' }
+              ]}
+            />
+          </div>
+          <div style={{ width: 120 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#334155', display: 'block', marginBottom: 4 }}>
+              {translate('aiVocabLevelLabel', currentLang)}
+            </span>
+            <Select
+              value={aiLevel}
+              onChange={setAiLevel}
+              style={{ width: '100%' }}
+              options={[
+                { value: 'A2-B1', label: 'Cơ bản (A2-B1)' },
+                { value: 'B1-B2', label: 'Trung cấp (B1-B2)' },
+                { value: 'B2-C1', label: 'Nâng cao (B2-C1)' },
+                { value: 'C1-C2', label: 'Bản xứ (C1-C2)' }
+              ]}
+            />
+          </div>
+        </div>
+
+        {/* Suggestion tags for quick selection */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+          {['Data Engineering', 'System Architecture', 'Cloud & DevOps', 'IELTS Speaking 7.5', 'Job Interview', 'Daily Business Meetings', 'Machine Learning'].map(t => (
+            <Tag 
+              key={t}
+              onClick={() => setAiTopic(t)}
+              style={{ cursor: 'pointer', borderRadius: 12, fontSize: 11, background: aiTopic === t ? '#8b5cf6' : undefined, color: aiTopic === t ? '#fff' : undefined }}
+            >
+              {t}
+            </Tag>
+          ))}
+        </div>
+
+        <Button
+          type="primary"
+          block
+          loading={isGeneratingWords}
+          icon={<Sparkles size={16} />}
+          onClick={handleGenerateTopicWords}
+          style={{
+            borderRadius: 8,
+            fontWeight: 700,
+            background: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)',
+            border: 'none',
+            height: 40,
+            marginBottom: 20
+          }}
+        >
+          {translate('aiVocabGenerateBtn', currentLang)}
+        </Button>
+
+        {isGeneratingWords && (
+          <div style={{ textAlign: 'center', padding: '30px 0' }}>
+            <Spin size="large" />
+            <div style={{ marginTop: 12, color: '#8b5cf6', fontWeight: 600 }}>
+              {translate('aiVocabGenerating', currentLang)}
+            </div>
+          </div>
+        )}
+
+        {/* Generated Words List with Selection */}
+        {generatedWords.length > 0 && !isGeneratingWords && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, padding: '0 4px' }}>
+              <span style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>
+                Danh sách từ vựng gợi ý ({selectedWordIndices.size}/{generatedWords.length} đã chọn):
+              </span>
+              <Button type="link" size="small" onClick={toggleSelectAll} style={{ padding: 0, fontWeight: 600 }}>
+                {selectedWordIndices.size === generatedWords.length ? 'Bỏ chọn tất cả' : translate('aiVocabSelectAll', currentLang)}
+              </Button>
+            </div>
+
+            <div style={{ maxHeight: 360, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4 }}>
+              {generatedWords.map((item, idx) => {
+                const isSelected = selectedWordIndices.has(idx);
+                return (
+                  <div
+                    key={idx}
+                    onClick={() => toggleSelectWord(idx)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                      padding: 12,
+                      borderRadius: 10,
+                      border: `1px solid ${isSelected ? '#8b5cf6' : '#e2e8f0'}`,
+                      background: isSelected ? 'rgba(139, 92, 246, 0.04)' : '#ffffff',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <Checkbox checked={isSelected} onChange={() => toggleSelectWord(idx)} style={{ marginTop: 2 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <strong style={{ fontSize: 16, color: '#1e293b' }}>{item.word}</strong>
+                        {item.phonetic && <span style={{ fontSize: 12, color: '#64748b', fontStyle: 'italic' }}>{item.phonetic}</span>}
+                        {item.description && (
+                          <span style={{ fontSize: 11, background: '#f1f5f9', color: '#475569', padding: '1px 6px', borderRadius: 4 }}>
+                            {item.description}
+                          </span>
+                        )}
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<Volume2 size={13} color="#8b5cf6" />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            playAudio(item.word);
+                          }}
+                          style={{ padding: 2 }}
+                        />
+                      </div>
+                      <div style={{ fontSize: 14, color: '#8b5cf6', fontWeight: 600, marginTop: 4 }}>
+                        {item.meaning}
+                      </div>
+                      {item.example && (
+                        <div style={{ fontSize: 12, color: '#64748b', fontStyle: 'italic', marginTop: 4, background: '#f8fafc', padding: '4px 8px', borderRadius: 6 }}>
+                          "{item.example}"
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <Button
+              type="primary"
+              block
+              size="large"
+              icon={<Plus size={16} />}
+              onClick={handleSaveGeneratedWords}
+              disabled={selectedWordIndices.size === 0}
+              style={{
+                marginTop: 16,
+                borderRadius: 8,
+                fontWeight: 700,
+                background: '#10b981',
+                border: 'none',
+                height: 42
+              }}
+            >
+              {translate('aiVocabSaveSelected', currentLang, { count: selectedWordIndices.size })}
+            </Button>
+          </div>
+        )}
       </Modal>
     </div>
   );

@@ -1027,3 +1027,182 @@ Hãy chấm điểm và nhận xét chi tiết. Trả về DUY NHẤT một đ�
   }
 }
 
+export interface AIGrammarExplanation {
+  title: string;
+  formula: string;
+  explanation: string;
+  examples: {
+    english: string;
+    vietnamese: string;
+  }[];
+  notes?: string;
+  tags: string[];
+}
+
+/**
+ * Tra cứu, phân tích cấu trúc hoặc câu hỏi ngữ pháp chuyên sâu bằng AI
+ */
+export async function searchGrammarWithAI(query: string, customSettings?: Partial<Settings>): Promise<AIGrammarExplanation> {
+  const currentSettings = await getSettings();
+  const settings = { ...currentSettings, ...customSettings };
+  if (!settings.ai_provider || settings.ai_provider === 'none') {
+    throw new Error(settings.language === 'en'
+      ? 'Please enable an AI provider or turn on DeepSeek Local Proxy to use AI Grammar Search.'
+      : 'Vui lòng bật AI Provider hoặc bật DeepSeek Local Proxy trên thanh công cụ để tra cứu ngữ pháp bằng AI.');
+  }
+
+  const prompt = `Bạn là một chuyên gia ngôn ngữ và giáo viên tiếng Anh hàng đầu.
+Người học muốn tra cứu và tìm hiểu sâu về cấu trúc hoặc câu hỏi ngữ pháp:
+"${query}"
+
+Hãy phân tích toàn diện, chính xác và trả về DUY NHẤT một đối tượng JSON hợp lệ (không chứa markdown \`\`\`json hay bất kỳ văn bản thừa bên ngoài JSON) theo cấu trúc sau:
+{
+  "title": "Tên cấu trúc/chủ đề ngữ pháp ngắn gọn, chuẩn mực (ví dụ: Third Conditional (Câu điều kiện loại 3))",
+  "formula": "Công thức / Cấu trúc ngữ pháp tổng quát rõ ràng (ví dụ: If + S + had + V3/ed, S + would/could + have + V3/ed)",
+  "explanation": "Giải thích chi tiết nhưng súc tích về cách dùng, bản chất ngữ pháp và ngữ cảnh áp dụng bằng tiếng Việt",
+  "examples": [
+    {
+      "english": "Câu ví dụ tiếng Anh tự nhiên, chuẩn bản xứ 1",
+      "vietnamese": "Dịch nghĩa tiếng Việt chuẩn xác 1"
+    },
+    {
+      "english": "Câu ví dụ tiếng Anh 2",
+      "vietnamese": "Dịch nghĩa tiếng Việt 2"
+    }
+  ],
+  "notes": "Lưu ý quan trọng, các biến thể đặc biệt, dạng đảo ngữ hoặc các bẫy trắc nghiệm hay gặp bằng tiếng Việt",
+  "tags": ["danh sách 2-4 tags phân loại viết bằng tiếng Anh không dấu, ví dụ: conditional, advanced, past-unreal"]
+}`;
+
+  const raw = await callAI([{ role: 'user', content: prompt }], true, settings);
+  const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const parsed = JSON.parse(cleaned);
+
+  return {
+    title: parsed.title || query,
+    formula: parsed.formula || '',
+    explanation: parsed.explanation || '',
+    examples: Array.isArray(parsed.examples) && parsed.examples.length > 0
+      ? parsed.examples
+      : [{ english: parsed.example || '', vietnamese: '' }],
+    notes: parsed.notes || '',
+    tags: Array.isArray(parsed.tags) ? parsed.tags : []
+  };
+}
+
+export interface AIGeneratedWord {
+  word: string;
+  phonetic: string;
+  meaning: string;
+  description: string;
+  example: string;
+  tags: string[];
+}
+
+/**
+ * Sinh từ vựng chuyên ngành hoặc theo chủ đề và trình độ bằng AI
+ */
+export async function generateVocabularyByTopicWithAI(
+  topic: string,
+  count = 5,
+  level = 'B1-B2',
+  customSettings?: Partial<Settings>
+): Promise<AIGeneratedWord[]> {
+  const currentSettings = await getSettings();
+  const settings = { ...currentSettings, ...customSettings };
+  if (!settings.ai_provider || settings.ai_provider === 'none') {
+    throw new Error(settings.language === 'en'
+      ? 'Please enable an AI provider or turn on DeepSeek Local Proxy to generate vocabulary.'
+      : 'Vui lòng bật AI Provider hoặc bật DeepSeek Local Proxy để sinh từ vựng bằng AI.');
+  }
+
+  const prompt = `Bạn là chuyên gia giảng dạy tiếng Anh. Hãy sinh ra danh sách gồm chính xác ${count} từ vựng hoặc cụm từ (collocations/idioms) tiếng Anh đắt giá nhất thuộc chủ đề: "${topic}" với trình độ ${level}.
+Trả về DUY NHẤT một đối tượng JSON có định dạng:
+{
+  "words": [
+    {
+      "word": "từ hoặc cụm từ (ví dụ: bottleneck)",
+      "phonetic": "/phiên âm IPA/",
+      "meaning": "nghĩa tiếng Việt thông dụng, cô đọng",
+      "description": "loại từ [noun/verb/adj] và giải thích ngắn gọn",
+      "example": "câu ví dụ tiếng Anh thực tế trong ngữ cảnh công việc/cuộc sống",
+      "tags": ["2-3 thẻ tag phân loại liên quan"]
+    }
+  ]
+}`;
+
+  const raw = await callAI([{ role: 'user', content: prompt }], true, settings);
+  const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const parsed = JSON.parse(cleaned);
+  const wordsList = Array.isArray(parsed.words) ? parsed.words : (Array.isArray(parsed) ? parsed : []);
+  
+  return wordsList.map((item: any) => ({
+    word: String(item.word || '').trim(),
+    phonetic: String(item.phonetic || '').trim(),
+    meaning: String(item.meaning || '').trim(),
+    description: String(item.description || '').trim(),
+    example: String(item.example || '').trim(),
+    tags: Array.isArray(item.tags) ? item.tags : [topic.toLowerCase().replace(/\s+/g, '-')]
+  })).filter((w: AIGeneratedWord) => w.word && w.meaning);
+}
+
+export interface AIDailyInsight {
+  greeting: string;
+  tip: string;
+  recommendedFocus: string;
+  example: string;
+}
+
+/**
+ * Sinh gợi ý và lời khuyên học tập thông minh mỗi ngày từ AI
+ */
+export async function getAIDailyInsight(
+  stats: { totalWords: number; missedWords: string[]; masteredWordsCount: number },
+  customSettings?: Partial<Settings>
+): Promise<AIDailyInsight> {
+  const currentSettings = await getSettings();
+  const settings = { ...currentSettings, ...customSettings };
+  if (!settings.ai_provider || settings.ai_provider === 'none') {
+    return {
+      greeting: 'Chào bạn! Hãy tiếp tục hành trình học tiếng Anh hôm nay.',
+      tip: 'Ôn tập ngắt quãng (Spaced Repetition) mỗi ngày 10-15 phút mang lại hiệu quả gấp 3 lần học dồn cuối tuần.',
+      recommendedFocus: 'Ôn tập 10 từ vựng đến hạn trong Flashcards.',
+      example: 'Consistency is the key to mastery.'
+    };
+  }
+
+  const prompt = `Bạn là huấn luyện viên tiếng Anh AI truyền cảm hứng.
+Thông tin học viên hiện tại:
+- Tổng số từ vựng đã lưu: ${stats.totalWords}
+- Số từ đã thành thạo: ${stats.masteredWordsCount}
+- Các từ hay bị sai gần đây: ${stats.missedWords.length > 0 ? stats.missedWords.slice(0, 3).join(', ') : 'Chưa có từ nào bị sai nhiều'}
+
+Hãy đưa ra lời khuyên học tập hôm nay và trả về DUY NHẤT một đối tượng JSON:
+{
+  "greeting": "Lời chào ngắn gọn, tràn đầy năng lượng bằng tiếng Việt",
+  "tip": "Mẹo học tập hoặc phân biệt từ/ngữ pháp hữu ích bằng tiếng Việt",
+  "recommendedFocus": "Gợi ý mục tiêu trọng tâm cần hoàn thành hôm nay",
+  "example": "Một câu trích dẫn hoặc câu ví dụ tiếng Anh truyền cảm hứng kèm dịch nghĩa tiếng Việt"
+}`;
+
+  try {
+    const raw = await callAI([{ role: 'user', content: prompt }], true, settings);
+    const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+    return {
+      greeting: parsed.greeting || 'Chào bạn! Chúc bạn một ngày học tập hiệu quả.',
+      tip: parsed.tip || 'Hãy biến tiếng Anh thành thói quen hàng ngày qua các bài viết chuyên ngành.',
+      recommendedFocus: parsed.recommendedFocus || 'Ôn tập các từ vựng đến hạn hôm nay.',
+      example: parsed.example || 'Every master was once a disaster. (Bất kỳ bậc thầy nào cũng từng là người mới bắt đầu.)'
+    };
+  } catch {
+    return {
+      greeting: 'Chào bạn! Chúc bạn một ngày học tập hiệu quả.',
+      tip: 'Hãy học theo cụm từ (Collocations) thay vì học từ đơn lẻ để nói tự nhiên hơn.',
+      recommendedFocus: 'Hoàn thành mục tiêu flashcard hôm nay.',
+      example: 'Small daily improvements over time lead to stunning results.'
+    };
+  }
+}
+
+

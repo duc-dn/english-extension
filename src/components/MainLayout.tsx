@@ -5,6 +5,8 @@ import { Book, Layers, LayoutDashboard, Settings, BookOpen, CheckSquare, Globe }
 import { useSettings, saveSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
 
+import { DeepSeekProxyWidget } from './DeepSeekProxyWidget';
+
 const { Content, Sider } = Layout;
 
 export const MainLayout: React.FC = () => {
@@ -21,6 +23,8 @@ export const MainLayout: React.FC = () => {
     { key: '/quizzes', icon: <CheckSquare size={18} />, label: translate('quizzes', currentLang) },
     { key: '/settings', icon: <Settings size={18} />, label: translate('settings', currentLang) },
   ];
+
+  const currentTitle = menuItems.find(m => m.key === location.pathname)?.label || 'EngExt Pro';
 
   return (
     <Layout style={{ minHeight: '100vh', background: 'transparent', position: 'relative' }}>
@@ -106,7 +110,26 @@ export const MainLayout: React.FC = () => {
         </div>
       </Sider>
       <Layout style={{ background: 'transparent' }}>
-        <Content style={{ margin: '32px 32px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        {/* Top Header Bar across all admin pages */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '20px 32px 0 32px',
+        }}>
+          <div>
+            <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Trang quản trị / Admin
+            </span>
+            <h3 style={{ margin: '2px 0 0 0', fontWeight: 800, fontSize: 20, color: '#1e293b' }}>
+              {currentTitle}
+            </h3>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <DeepSeekProxyWidget />
+          </div>
+        </div>
+        <Content style={{ margin: '20px 32px 32px 32px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
           <Outlet />
         </Content>
       </Layout>

@@ -7,7 +7,10 @@ import {
   translateSentenceWithAI, 
   sendChatMessage, 
   extractGrammarNote,
-  testAIConnection
+  testAIConnection,
+  searchGrammarWithAI,
+  generateVocabularyByTopicWithAI,
+  getAIDailyInsight
 } from './translator';
 import { saveSettings, clearMockStorage } from './settings';
 
@@ -602,5 +605,109 @@ describe('testAIConnection', () => {
         })
       })
     );
+  });
+
+  describe('searchGrammarWithAI', () => {
+    it('should throw error when AI provider is none', async () => {
+      await saveSettings({ ai_provider: 'none' });
+      await expect(searchGrammarWithAI('Third Conditional')).rejects.toThrow();
+    });
+
+    it('should query DeepSeek local proxy and parse structured grammar explanation', async () => {
+      await saveSettings({
+        ai_provider: 'deepseek',
+        deepseek_auth_type: 'local_proxy',
+        deepseek_proxy_url: 'http://127.0.0.1:9655',
+        deepseek_model: 'deepseek-chat'
+      });
+
+      const mockResponse = JSON.stringify({
+        title: 'Third Conditional (Câu điều kiện loại 3)',
+        formula: 'If + S + had + V3/ed, S + would + have + V3/ed',
+        explanation: 'Diễn tả hành động không có thật trong quá khứ.',
+        examples: [
+          { english: 'If I had studied harder, I would have passed.', vietnamese: 'Nếu tôi đã học chăm hơn, tôi đã đỗ rồi.' }
+        ],
+        notes: 'Đảo ngữ: Had + S + V3/ed...',
+        tags: ['conditional', 'advanced']
+      });
+
+      (globalThis.fetch as any).mockResolvedValue({
+        ok: true,
+        text: async () => JSON.stringify({
+          choices: [{ message: { content: mockResponse } }]
+        })
+      });
+
+      const res = await searchGrammarWithAI('Conditional 3');
+      expect(res.title).toBe('Third Conditional (Câu điều kiện loại 3)');
+      expect(res.formula).toBe('If + S + had + V3/ed, S + would + have + V3/ed');
+      expect(res.explanation).toContain('quá khứ');
+      expect(res.examples).toHaveLength(1);
+      expect(res.tags).toEqual(['conditional', 'advanced']);
+    });
+  });
+
+  describe('generateVocabularyByTopicWithAI', () => {
+    it('should generate vocabulary list by topic', async () => {
+      await saveSettings({
+        ai_provider: 'deepseek',
+        deepseek_auth_type: 'local_proxy',
+        deepseek_proxy_url: 'http://127.0.0.1:9655'
+      });
+
+      const mockWords = JSON.stringify({
+        words: [
+          {
+            word: 'pipeline',
+            phonetic: '/ˈpaɪp.laɪn/',
+            meaning: 'đường ống dẫn dữ liệu',
+            description: '[noun] chuỗi quy trình xử lý',
+            example: 'We built a data pipeline in Python.',
+            tags: ['data-engineering']
+          }
+        ]
+      });
+
+      (globalThis.fetch as any).mockResolvedValue({
+        ok: true,
+        text: async () => JSON.stringify({
+          choices: [{ message: { content: mockWords } }]
+        })
+      });
+
+      const words = await generateVocabularyByTopicWithAI('Data Engineering', 1, 'B2');
+      expect(words).toHaveLength(1);
+      expect(words[0].word).toBe('pipeline');
+      expect(words[0].meaning).toBe('đường ống dẫn dữ liệu');
+    });
+  });
+
+  describe('getAIDailyInsight', () => {
+    it('should return daily insight correctly', async () => {
+      await saveSettings({
+        ai_provider: 'deepseek',
+        deepseek_auth_type: 'local_proxy',
+        deepseek_proxy_url: 'http://127.0.0.1:9655'
+      });
+
+      const mockInsight = JSON.stringify({
+        greeting: 'Chào bạn!',
+        tip: 'Mỗi ngày học 5 từ vựng mới.',
+        recommendedFocus: 'Ôn tập thì quá khứ.',
+        example: 'Practice makes perfect.'
+      });
+
+      (globalThis.fetch as any).mockResolvedValue({
+        ok: true,
+        text: async () => JSON.stringify({
+          choices: [{ message: { content: mockInsight } }]
+        })
+      });
+
+      const insight = await getAIDailyInsight({ totalWords: 10, missedWords: [], masteredWordsCount: 2 });
+      expect(insight.greeting).toBe('Chào bạn!');
+      expect(insight.tip).toContain('học 5 từ');
+    });
   });
 });

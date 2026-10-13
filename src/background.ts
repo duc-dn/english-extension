@@ -190,6 +190,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'DEEPSEEK_PROXY_PING') {
+    const url = request.payload?.url || 'http://127.0.0.1:9655/';
+    const start = Date.now();
+    fetch(url, { method: 'GET', signal: AbortSignal.timeout(3000) })
+      .then(async (res) => {
+        const latency = Date.now() - start;
+        let data = null;
+        try { data = await res.json(); } catch {}
+        sendResponse({ ok: res.ok, status: res.status, latency, data });
+      })
+      .catch((err) => {
+        sendResponse({ ok: false, error: err.message });
+      });
+    return true;
+  }
+
   if (request.action === 'OPEN_SIDEPANEL') {
     if (sender.tab && sender.tab.id) {
       chrome.sidePanel.open({ tabId: sender.tab.id })

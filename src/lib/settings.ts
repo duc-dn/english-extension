@@ -19,10 +19,12 @@ export interface Settings {
   language?: 'vi' | 'en';
   show_trigger_icon?: boolean;
   daily_review_goal?: number;
+  previous_ai_provider?: 'gemini' | 'openai' | 'deepseek' | 'chatgpt_web' | 'ollama' | 'none';
 }
 
 const DEFAULT_SETTINGS: Settings = {
   ai_provider: 'none',
+  previous_ai_provider: 'none',
   gemini_api_key: '',
   gemini_model: 'gemini-2.5-flash-lite',
   openai_api_key: '',
