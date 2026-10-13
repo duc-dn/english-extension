@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Form, Input, InputNumber, Button, Select, Card, Typography, message, Divider, Space, Modal, Switch, Alert, Tag, Segmented } from 'antd';
+import { Form, Input, InputNumber, Button, Select, Card, Typography, message, Divider, Space, Modal, Switch, Alert, Tag, Segmented, Row, Col } from 'antd';
 import { Save, CloudUpload, CloudDownload, Sparkles, ExternalLink, RefreshCw, Zap, Key } from 'lucide-react';
 import { getSettings, saveSettings, useSettings, type Settings } from '../lib/settings';
 import { syncToGithub, syncFromGithub } from '../lib/github';
@@ -7,6 +7,7 @@ import { translate } from '../lib/localization';
 import { testAIConnection, type AITestResult } from '../lib/translator';
 import { beginChatGPTLogin, checkChatGPTConnection, listChatGPTModels, savePairingCode, type ChatGPTStatus } from '../lib/chatgptCompanion';
 import { isDeepSeekProxyActive, pingDeepSeekProxy, toggleDeepSeekProxy, type DeepSeekProxyHealth } from '../lib/deepseekProxy';
+import { pomodoroManager, usePomodoroTimer } from '../lib/pomodoro';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -30,6 +31,7 @@ export const SettingsPage: React.FC = () => {
   const [isPingingProxy, setIsPingingProxy] = useState(false);
 
   const settings = useSettings();
+  const pomodoroState = usePomodoroTimer();
   const currentLang = settings.language || 'vi';
   const nativeInstallCommand = `npm run chatgpt:install-host -- ${typeof chrome !== 'undefined' ? chrome.runtime.id : '<extension-id>'}`;
 
@@ -255,12 +257,111 @@ export const SettingsPage: React.FC = () => {
           </Form.Item>
 
           <Form.Item
+            name="enable_passive_highlight"
+            label={currentLang === 'vi' ? 'Highlight từ đang học khi đọc web (Passive Reading)' : 'Highlight learning words while browsing'}
+            valuePropName="checked"
+            tooltip={currentLang === 'vi' ? 'Tự động gạch chân và hiện tooltip các từ bạn đang học khi lướt web.' : 'Underline and show tooltip for learning words in web pages.'}
+          >
+            <Switch />
+          </Form.Item>
+
+          <Form.Item
+            name="enable_writing_assistant"
+            label={currentLang === 'vi' ? 'Trợ lý AI viết tiếng Anh (Writing Assistant)' : 'AI Writing Assistant'}
+            valuePropName="checked"
+            tooltip={currentLang === 'vi' ? 'Hiển thị nút AI Polish để soát lỗi và nâng cấp câu văn khi gõ trên web.' : 'Show AI Polish button to check grammar and polish text in inputs/textareas.'}
+          >
+            <Switch />
+          </Form.Item>
+
+          <Form.Item
             name="daily_review_goal"
             label={currentLang === 'vi' ? 'Mục tiêu ôn tập mỗi ngày' : 'Daily review goal'}
             rules={[{ type: 'number', min: 1, max: 100, message: currentLang === 'vi' ? 'Chọn từ 1 đến 100.' : 'Choose 1 to 100.' }]}
           >
             <InputNumber min={1} max={100} style={{ width: 160 }} addonAfter={currentLang === 'vi' ? 'lượt ôn' : 'reviews'} />
           </Form.Item>
+
+          <Divider />
+          <Title level={4} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>🍅</span> {translate('pomodoroTimer', currentLang)}
+          </Title>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+            {currentLang === 'vi'
+              ? 'Tùy chỉnh thời lượng học tập trung và nghỉ ngơi theo phương pháp Pomodoro.'
+              : 'Customize focused study and break durations following the Pomodoro technique.'}
+          </Text>
+
+          <Row gutter={[16, 16]} style={{ marginBottom: 12 }}>
+            <Col xs={24} sm={8}>
+              <div>
+                <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+                  {translate('pomodoroFocus', currentLang)}
+                </Text>
+                <InputNumber
+                  min={1}
+                  max={120}
+                  value={Math.round(pomodoroState.settings.focusDuration / 60)}
+                  onChange={(val) => {
+                    if (val) pomodoroManager.updateSettings({ focusDuration: val * 60 });
+                  }}
+                  addonAfter={currentLang === 'vi' ? 'phút' : 'mins'}
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </Col>
+            <Col xs={24} sm={8}>
+              <div>
+                <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+                  {translate('pomodoroShortBreak', currentLang)}
+                </Text>
+                <InputNumber
+                  min={1}
+                  max={60}
+                  value={Math.round(pomodoroState.settings.shortBreakDuration / 60)}
+                  onChange={(val) => {
+                    if (val) pomodoroManager.updateSettings({ shortBreakDuration: val * 60 });
+                  }}
+                  addonAfter={currentLang === 'vi' ? 'phút' : 'mins'}
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </Col>
+            <Col xs={24} sm={8}>
+              <div>
+                <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+                  {translate('pomodoroLongBreak', currentLang)}
+                </Text>
+                <InputNumber
+                  min={1}
+                  max={60}
+                  value={Math.round(pomodoroState.settings.longBreakDuration / 60)}
+                  onChange={(val) => {
+                    if (val) pomodoroManager.updateSettings({ longBreakDuration: val * 60 });
+                  }}
+                  addonAfter={currentLang === 'vi' ? 'phút' : 'mins'}
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </Col>
+          </Row>
+
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Switch
+                checked={pomodoroState.settings.soundEnabled}
+                onChange={(checked) => pomodoroManager.updateSettings({ soundEnabled: checked })}
+              />
+              <Text>{translate('pomodoroSoundToggle', currentLang)}</Text>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Switch
+                checked={pomodoroState.settings.autoStartNext}
+                onChange={(checked) => pomodoroManager.updateSettings({ autoStartNext: checked })}
+              />
+              <Text>{currentLang === 'vi' ? 'Tự động bắt đầu phiên tiếp theo' : 'Auto-start next session'}</Text>
+            </div>
+          </div>
 
           <Divider />
           <Title level={4}>{translate('aiProviderTitle', currentLang)}</Title>

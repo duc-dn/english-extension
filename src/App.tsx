@@ -9,6 +9,7 @@ import { FlashcardReview } from './pages/FlashcardReview';
 import { SettingsPage } from './pages/SettingsPage';
 import { GrammarManager } from './pages/GrammarManager';
 import { QuizPage } from './pages/QuizPage';
+import { PomodoroPage } from './pages/PomodoroPage';
 import { CompactView } from './components/CompactView';
 import './App.css';
 
@@ -140,6 +141,7 @@ function App() {
               <Route path="grammar" element={<GrammarManager />} />
               <Route path="flashcards" element={<FlashcardReview />} />
               <Route path="quizzes" element={<QuizPage />} />
+              <Route path="pomodoro" element={<PomodoroPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Routes>

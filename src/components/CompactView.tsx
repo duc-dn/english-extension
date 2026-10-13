@@ -11,6 +11,7 @@ import type { ChatHistoryItem } from '../lib/translator';
 import { Input, Button, Tag, Progress, message, ConfigProvider, Modal, theme as antdTheme, Select, Switch } from 'antd';
 import { saveSettings, useSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
+import { PomodoroTimerWidget } from './PomodoroTimerWidget';
 
 export const CompactView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'lookup' | 'vocab' | 'flashcards' | 'stats' | 'settings' | 'aichat'>('lookup');
@@ -1563,6 +1564,7 @@ export const CompactView: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <PomodoroTimerWidget compact={true} />
             {!isAiConfigured && (
               <Button 
                 type="text" 

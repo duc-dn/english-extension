@@ -1205,4 +1205,78 @@ Hãy đưa ra lời khuyên học tập hôm nay và trả về DUY NHẤT một
   }
 }
 
+export type WritingTone = 'professional' | 'concise' | 'casual' | 'grammar_only';
+
+export interface WritingPolishCorrection {
+  original: string;
+  replacement: string;
+  reason: string;
+}
+
+export interface WritingPolishResult {
+  improvedText: string;
+  originalText: string;
+  tone: WritingTone;
+  corrections: WritingPolishCorrection[];
+  explanation: string;
+}
+
+export async function polishWritingWithAI(
+  text: string,
+  tone: WritingTone = 'professional',
+  customSettings?: Partial<Settings>
+): Promise<WritingPolishResult> {
+  const currentSettings = await getSettings();
+  const settings = { ...currentSettings, ...customSettings };
+  if (!settings.ai_provider || settings.ai_provider === 'none') {
+    throw new Error('Chưa cấu hình AI provider (Gemini, DeepSeek, ChatGPT, hoặc Ollama).');
+  }
+
+  const toneInstructions = {
+    professional: 'Trang trọng, lịch thiệp, chuẩn mực tiếng Anh công sở (cho email, báo cáo, ticket công việc, trao đổi khách hàng).',
+    concise: 'Súc tích, trực diện, loại bỏ từ thừa thãi (cho GitHub PR description, git commit, Slack message, ghi chú kỹ thuật).',
+    casual: 'Thân thiện, tự nhiên, sinh động như người bản xứ giao tiếp hàng ngày.',
+    grammar_only: 'Chỉ sửa lỗi ngữ pháp, chính tả, giới từ, mạo từ; tuyệt đối giữ nguyên cấu trúc và ý diễn đạt ban đầu.'
+  }[tone];
+
+  const prompt = `Bạn là chuyên gia biên tập tiếng Anh bản xứ hàng đầu thế giới.
+Văn bản của người dùng:
+"""${text}"""
+
+Phong cách yêu cầu: ${tone} (${toneInstructions})
+
+Nhiệm vụ:
+1. Sửa toàn bộ lỗi chính tả, ngữ pháp, thì động từ, mạo từ (a/an/the), giới từ.
+2. Nâng cấp câu văn cho tự nhiên, mượt mà và đúng chuẩn người bản ngữ theo phong cách "${tone}".
+3. Liệt kê các điểm sửa đổi cụ thể và lý do giải thích bằng tiếng Việt.
+
+Hãy trả về DUY NHẤT một đối tượng JSON hợp lệ (không kèm bất kỳ văn bản thừa nào ngoài JSON):
+{
+  "improvedText": "đoạn văn bản tiếng Anh sau khi đã sửa và nâng cấp hoàn chỉnh",
+  "originalText": "${text.replace(/"/g, '\\"')}",
+  "tone": "${tone}",
+  "corrections": [
+    {
+      "original": "từ hoặc cụm từ bị lỗi/chưa tự nhiên",
+      "replacement": "từ hoặc cụm từ thay thế",
+      "reason": "lý do sửa ngắn gọn bằng tiếng Việt (ví dụ: dùng make thay vì do; sửa in thành on)"
+    }
+  ],
+  "explanation": "tóm tắt ngắn gọn 1-2 câu nhận xét về câu văn bằng tiếng Việt"
+}`;
+
+  const raw = await callAI([{ role: 'user', content: prompt }], true, settings);
+  const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const parsed = JSON.parse(cleaned);
+
+  return {
+    improvedText: parsed.improvedText || text,
+    originalText: text,
+    tone,
+    corrections: Array.isArray(parsed.corrections) ? parsed.corrections : [],
+    explanation: parsed.explanation || 'Đã nâng cấp câu văn theo chuẩn người bản ngữ.'
+  };
+}
+
+
 

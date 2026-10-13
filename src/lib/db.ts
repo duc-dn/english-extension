@@ -155,6 +155,15 @@ export async function updateWord(id: string, updates: Partial<Omit<Word, 'id' | 
   triggerAutoSync();
 }
 
+export async function getLearningWords(): Promise<Word[]> {
+  const words = await db.words.toArray();
+  return words.filter(w => w.status !== 'mastered');
+}
+
+export async function markWordMastered(id: string): Promise<void> {
+  await updateWord(id, { status: 'mastered', review_level: 5 });
+}
+
 export async function importWords(inputs: WordInput[]): Promise<{ added: number; duplicates: number }> {
   let added = 0;
   let duplicates = 0;

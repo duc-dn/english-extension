@@ -1,11 +1,12 @@
 import React from 'react';
 import { Layout, Menu, Button } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Book, Layers, LayoutDashboard, Settings, BookOpen, CheckSquare, Globe } from 'lucide-react';
+import { Book, Layers, LayoutDashboard, Settings, BookOpen, CheckSquare, Globe, Timer } from 'lucide-react';
 import { useSettings, saveSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
 
 import { DeepSeekProxyWidget } from './DeepSeekProxyWidget';
+import { PomodoroTimerWidget } from './PomodoroTimerWidget';
 
 const { Content, Sider } = Layout;
 
@@ -21,6 +22,7 @@ export const MainLayout: React.FC = () => {
     { key: '/grammar', icon: <BookOpen size={18} />, label: translate('grammar', currentLang) },
     { key: '/flashcards', icon: <Layers size={18} />, label: translate('flashcards', currentLang) },
     { key: '/quizzes', icon: <CheckSquare size={18} />, label: translate('quizzes', currentLang) },
+    { key: '/pomodoro', icon: <Timer size={18} />, label: translate('pomodoroTimer', currentLang) },
     { key: '/settings', icon: <Settings size={18} />, label: translate('settings', currentLang) },
   ];
 
@@ -126,6 +128,7 @@ export const MainLayout: React.FC = () => {
             </h3>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <PomodoroTimerWidget />
             <DeepSeekProxyWidget />
           </div>
         </div>

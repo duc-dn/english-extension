@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Row, Col, Card, Statistic, Typography, Tooltip, Table, Tag, Progress, Button, Spin } from 'antd';
-import { BookOpen, Calendar, CheckCircle, AlertCircle, Award, Sparkles, RefreshCw } from 'lucide-react';
+import { BookOpen, Calendar, CheckCircle, AlertCircle, Award, Sparkles, RefreshCw, Timer } from 'lucide-react';
 import { ActivityCalendar } from 'react-activity-calendar';
 import { db, getWordsToReview, getFrequentlyMissedWords, getMasteryStats, type Word } from '../lib/db';
 import { useSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
 import { getAIDailyInsight, type AIDailyInsight } from '../lib/translator';
+import { getTodayPomodoroStats } from '../lib/pomodoro';
 
 const { Title, Text } = Typography;
 
@@ -24,6 +25,7 @@ export const Dashboard: React.FC = () => {
   const [todayReviews, setTodayReviews] = useState(0);
   const [missedWords, setMissedWords] = useState<Word[]>([]);
   const [masteryStats, setMasteryStats] = useState({ new: 0, learning: 0, reviewing: 0, mastered: 0, total: 0 });
+  const [pomodoroStats, setPomodoroStats] = useState(() => getTodayPomodoroStats());
 
   // AI Daily Study Insights state
   const [aiInsight, setAiInsight] = useState<AIDailyInsight | null>(null);
@@ -35,6 +37,7 @@ export const Dashboard: React.FC = () => {
 
   useEffect(() => {
     const fetchData = async () => {
+      setPomodoroStats(getTodayPomodoroStats());
       const total = await db.words.count();
       setTotalWords(total);
 
@@ -223,7 +226,7 @@ export const Dashboard: React.FC = () => {
       </Card>
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} sm={8}>
+        <Col xs={24} sm={12} lg={6}>
           <Card className="glass-card hover-lift" bordered={false} style={{ overflow: 'hidden', position: 'relative' }}>
             <div style={{ position: 'absolute', top: -20, right: -20, opacity: 0.1, transform: 'scale(2)' }}>
               <BookOpen size={100} color="#6366f1" />
@@ -235,7 +238,7 @@ export const Dashboard: React.FC = () => {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={8}>
+        <Col xs={24} sm={12} lg={6}>
           <Card className="glass-card hover-lift" bordered={false} style={{ overflow: 'hidden', position: 'relative' }}>
             <div style={{ position: 'absolute', top: -20, right: -20, opacity: 0.1, transform: 'scale(2)' }}>
               <Calendar size={100} color="#ec4899" />
@@ -247,7 +250,7 @@ export const Dashboard: React.FC = () => {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={8}>
+        <Col xs={24} sm={12} lg={6}>
           <Card className="glass-card hover-lift" bordered={false} style={{ overflow: 'hidden', position: 'relative' }}>
             <div style={{ position: 'absolute', top: -20, right: -20, opacity: 0.1, transform: 'scale(2)' }}>
               <CheckCircle size={100} color="#10b981" />
@@ -257,6 +260,19 @@ export const Dashboard: React.FC = () => {
               value={streak}
               suffix={<span style={{ fontSize: 16, fontWeight: 500, color: '#94a3b8' }}>{translate('days', currentLang)}</span>}
               valueStyle={{ color: '#10b981', fontWeight: 800, fontSize: 36 }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <Card className="glass-card hover-lift" bordered={false} style={{ overflow: 'hidden', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: -20, right: -20, opacity: 0.1, transform: 'scale(2)' }}>
+              <Timer size={100} color="#f43f5e" />
+            </div>
+            <Statistic
+              title={<span style={{ fontWeight: 600, color: '#64748b' }}>{translate('pomodoroStatsCardTitle', currentLang)}</span>}
+              value={pomodoroStats.completedSessions}
+              suffix={<span style={{ fontSize: 14, fontWeight: 500, color: '#94a3b8' }}>{currentLang === 'vi' ? `phiên (${pomodoroStats.totalMinutes}m)` : `sessions (${pomodoroStats.totalMinutes}m)`}</span>}
+              valueStyle={{ color: '#f43f5e', fontWeight: 800, fontSize: 36 }}
             />
           </Card>
         </Col>

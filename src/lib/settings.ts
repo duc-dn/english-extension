@@ -20,6 +20,8 @@ export interface Settings {
   show_trigger_icon?: boolean;
   daily_review_goal?: number;
   previous_ai_provider?: 'gemini' | 'openai' | 'deepseek' | 'chatgpt_web' | 'ollama' | 'none';
+  enable_passive_highlight?: boolean;
+  enable_writing_assistant?: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -44,6 +46,8 @@ const DEFAULT_SETTINGS: Settings = {
   language: 'vi',
   show_trigger_icon: true,
   daily_review_goal: 10,
+  enable_passive_highlight: true,
+  enable_writing_assistant: true,
 };
 
 // Mock fallback for tests/local web dev

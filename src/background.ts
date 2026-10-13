@@ -1,6 +1,7 @@
-import { addWord } from './lib/db';
+import { addWord, getLearningWords, markWordMastered } from './lib/db';
 import { syncToGithub } from './lib/github';
 import { subscribeToSettings } from './lib/settings';
+import { polishWritingWithAI } from './lib/translator';
 
 async function startChatGPTCompanion(): Promise<{ pairingToken: string }> {
   let reply: { ok?: boolean; pairingToken?: string; error?: string };
@@ -217,6 +218,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       sendResponse({ success: true });
     }
+    return true;
+  }
+
+  if (request.action === 'GET_LEARNING_WORDS') {
+    getLearningWords()
+      .then((words) => sendResponse({ ok: true, words }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (request.action === 'MARK_WORD_MASTERED') {
+    markWordMastered(request.payload.id)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (request.action === 'POLISH_WRITING') {
+    const { text, tone } = request.payload;
+    polishWritingWithAI(text, tone)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
 });

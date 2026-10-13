@@ -2,6 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Volume2, Check, Bookmark } from 'lucide-react';
 import { fetchBasicMeaning, translateSentence, translateSentenceWithAI, explainWord } from './lib/translator';
+import { PassiveHighlightManager } from './components/PassiveHighlightManager';
+import { WritingAssistantOverlay } from './components/WritingAssistantOverlay';
 
 const ContentApp: React.FC = () => {
   const [selectedText, setSelectedText] = useState('');
@@ -952,4 +954,10 @@ rootElement.id = 'eng-ext-root';
 document.body.appendChild(rootElement);
 
 const root = createRoot(rootElement);
-root.render(<ContentApp />);
+root.render(
+  <>
+    <ContentApp />
+    <PassiveHighlightManager />
+    <WritingAssistantOverlay />
+  </>
+);

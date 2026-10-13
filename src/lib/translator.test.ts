@@ -10,7 +10,8 @@ import {
   testAIConnection,
   searchGrammarWithAI,
   generateVocabularyByTopicWithAI,
-  getAIDailyInsight
+  getAIDailyInsight,
+  polishWritingWithAI
 } from './translator';
 import { saveSettings, clearMockStorage } from './settings';
 
@@ -708,6 +709,38 @@ describe('testAIConnection', () => {
       const insight = await getAIDailyInsight({ totalWords: 10, missedWords: [], masteredWordsCount: 2 });
       expect(insight.greeting).toBe('Chào bạn!');
       expect(insight.tip).toContain('học 5 từ');
+    });
+  });
+
+  describe('polishWritingWithAI', () => {
+    it('should polish text with professional tone', async () => {
+      await saveSettings({
+        ai_provider: 'deepseek',
+        deepseek_auth_type: 'local_proxy',
+        deepseek_proxy_url: 'http://127.0.0.1:9655'
+      });
+
+      const mockPolishResponse = JSON.stringify({
+        improvedText: 'I would like to schedule a meeting to discuss the project timeline.',
+        originalText: 'i want meeting to talk about project',
+        tone: 'professional',
+        corrections: [
+          { original: 'i want meeting', replacement: 'I would like to schedule a meeting', reason: 'Trang trọng hơn' }
+        ],
+        explanation: 'Đã nâng cấp văn phong trang trọng cho email công việc.'
+      });
+
+      (globalThis.fetch as any).mockResolvedValue({
+        ok: true,
+        text: async () => JSON.stringify({
+          choices: [{ message: { content: mockPolishResponse } }]
+        })
+      });
+
+      const res = await polishWritingWithAI('i want meeting to talk about project', 'professional');
+      expect(res.improvedText).toContain('schedule a meeting');
+      expect(res.tone).toBe('professional');
+      expect(res.corrections).toHaveLength(1);
     });
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
-import { db, addWord, getWordsToReview, getWordsByTag, deleteWord, updateWord, updateWordReview, incrementWrongCount, importWords, DuplicateWordError, getReviewIntervalMinutes } from './db';
+import { db, addWord, getWordsToReview, getWordsByTag, deleteWord, updateWord, updateWordReview, incrementWrongCount, importWords, DuplicateWordError, getReviewIntervalMinutes, getLearningWords, markWordMastered } from './db';
 
 describe('English Extension DB (Dexie)', () => {
   beforeEach(async () => {
@@ -136,5 +136,21 @@ describe('English Extension DB (Dexie)', () => {
     expect(getReviewIntervalMinutes(0, 'hard')).toBe(60);
     expect(getReviewIntervalMinutes(0, 'good')).toBe(1440);
     expect(getReviewIntervalMinutes(0, 'easy')).toBe(3 * 1440);
+  });
+
+  it('fetches learning words and marks a word as mastered', async () => {
+    const w1 = await addWord({ word: 'collaborate', meaning: 'hợp tác', example: '', tags: [] });
+    await addWord({ word: 'achieve', meaning: 'đạt được', example: '', tags: [] });
+
+    let learning = await getLearningWords();
+    expect(learning.length).toBe(2);
+
+    await markWordMastered(w1.id);
+    learning = await getLearningWords();
+    expect(learning.length).toBe(1);
+    expect(learning[0].word).toBe('achieve');
+
+    const updatedW1 = await db.words.get(w1.id);
+    expect(updatedW1?.status).toBe('mastered');
   });
 });
