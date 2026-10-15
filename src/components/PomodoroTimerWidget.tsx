@@ -153,36 +153,33 @@ export const PomodoroTimerWidget: React.FC<{ compact?: boolean }> = ({ compact =
       <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 14 }}>
         <Button
           type="primary"
-          size="middle"
-          icon={isRunning ? <Pause size={16} /> : <Play size={16} fill="white" />}
+          icon={isRunning ? <Pause size={15} /> : <Play size={15} fill="white" />}
           onClick={() => (isRunning ? pomodoroManager.pause() : pomodoroManager.start())}
           style={{
             flex: 1,
             background: modeTheme.gradient,
             borderColor: 'transparent',
-            height: 38,
-            borderRadius: 10,
-            fontWeight: 700,
+            height: 34,
+            borderRadius: 8,
+            fontWeight: 600,
             fontSize: 13,
-            boxShadow: `0 4px 12px ${modeTheme.color}33`,
+            boxShadow: `0 2px 8px ${modeTheme.color}33`,
           }}
         >
           {isRunning ? translate('pomodoroPause', currentLang) : translate('pomodoroStart', currentLang)}
         </Button>
         <Tooltip title={translate('pomodoroReset', currentLang)}>
           <Button
-            size="middle"
-            icon={<RotateCcw size={15} color="#64748b" />}
+            icon={<RotateCcw size={14} color="#64748b" />}
             onClick={() => pomodoroManager.reset()}
-            style={{ borderRadius: 10, height: 38, width: 38, padding: 0 }}
+            style={{ borderRadius: 8, height: 34, width: 34, padding: 0 }}
           />
         </Tooltip>
         <Tooltip title={translate('pomodoroSkip', currentLang)}>
           <Button
-            size="middle"
-            icon={<SkipForward size={15} color="#64748b" />}
+            icon={<SkipForward size={14} color="#64748b" />}
             onClick={() => pomodoroManager.skip()}
-            style={{ borderRadius: 10, height: 38, width: 38, padding: 0 }}
+            style={{ borderRadius: 8, height: 34, width: 34, padding: 0 }}
           />
         </Tooltip>
       </div>

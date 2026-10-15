@@ -324,9 +324,9 @@ export const PomodoroPage: React.FC = () => {
             {/* Sound chime status toggle */}
             <Tooltip title={pomodoroSettings.soundEnabled ? 'Chuông thông báo đang bật' : 'Chuông thông báo đang tắt'}>
               <Button
-                icon={pomodoroSettings.soundEnabled ? <Volume2 size={16} color="#10b981" /> : <VolumeX size={16} color="#94a3b8" />}
+                icon={pomodoroSettings.soundEnabled ? <Volume2 size={14} color="#10b981" /> : <VolumeX size={14} color="#94a3b8" />}
                 onClick={() => pomodoroManager.updateSettings({ soundEnabled: !pomodoroSettings.soundEnabled })}
-                style={{ borderRadius: 20 }}
+                style={{ borderRadius: 8, height: 32, fontSize: 13, fontWeight: 500 }}
               >
                 {pomodoroSettings.soundEnabled ? 'Chime ON' : 'Chime Muted'}
               </Button>
@@ -335,9 +335,9 @@ export const PomodoroPage: React.FC = () => {
             {/* Fullscreen Button */}
             <Tooltip title={isFullscreen ? translate('pomodoroExitFullscreen', currentLang) : translate('pomodoroFullscreen', currentLang)}>
               <Button
-                icon={isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                icon={isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
                 onClick={toggleFullscreen}
-                style={{ borderRadius: 20 }}
+                style={{ borderRadius: 8, height: 32, fontSize: 13, fontWeight: 500 }}
               >
                 {isFullscreen ? translate('pomodoroExitFullscreen', currentLang) : translate('pomodoroFullscreen', currentLang)}
               </Button>
@@ -397,7 +397,7 @@ export const PomodoroPage: React.FC = () => {
               style={{
                 background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'rgba(255, 255, 255, 0.65)',
                 padding: 4,
-                borderRadius: 24,
+                borderRadius: 8,
                 border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(226, 232, 240, 0.8)',
               }}
             />
@@ -477,21 +477,20 @@ export const PomodoroPage: React.FC = () => {
           </div>
 
           {/* Main Action Control Buttons */}
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 14, marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginBottom: 20 }}>
             <Button
               type="primary"
-              size="large"
-              icon={isRunning ? <Pause size={20} /> : <Play size={20} fill="white" />}
+              icon={isRunning ? <Pause size={16} /> : <Play size={16} fill="white" />}
               onClick={() => (isRunning ? pomodoroManager.pause() : pomodoroManager.start())}
               style={{
-                height: 52,
-                minWidth: 190,
-                borderRadius: 26,
+                height: 38,
+                minWidth: 150,
+                borderRadius: 8,
                 background: modeTheme.btnGradient,
                 borderColor: 'transparent',
-                fontWeight: 800,
-                fontSize: 16,
-                boxShadow: modeTheme.shadow,
+                fontWeight: 600,
+                fontSize: 14,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -503,13 +502,12 @@ export const PomodoroPage: React.FC = () => {
 
             <Tooltip title={translate('pomodoroReset', currentLang)}>
               <Button
-                size="large"
-                icon={<RotateCcw size={18} color="#64748b" />}
+                icon={<RotateCcw size={15} color="#64748b" />}
                 onClick={() => pomodoroManager.reset()}
                 style={{ 
-                  height: 52, 
-                  width: 52, 
-                  borderRadius: 26, 
+                  height: 38, 
+                  width: 38, 
+                  borderRadius: 8, 
                   display: 'flex', 
                   alignItems: 'center', 
                   justifyContent: 'center' 
@@ -519,13 +517,12 @@ export const PomodoroPage: React.FC = () => {
 
             <Tooltip title={translate('pomodoroSkip', currentLang)}>
               <Button
-                size="large"
-                icon={<SkipForward size={18} color="#64748b" />}
+                icon={<SkipForward size={15} color="#64748b" />}
                 onClick={() => pomodoroManager.skip()}
                 style={{ 
-                  height: 52, 
-                  width: 52, 
-                  borderRadius: 26, 
+                  height: 38, 
+                  width: 38, 
+                  borderRadius: 8, 
                   display: 'flex', 
                   alignItems: 'center', 
                   justifyContent: 'center' 

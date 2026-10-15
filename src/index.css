@@ -612,17 +612,17 @@ body.dark-mode .timer-pulse-critical {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 56px;
-  min-width: 115px;
-  border-radius: 16px !important;
+  height: 44px;
+  min-width: 105px;
+  border-radius: 8px !important;
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  padding: 6px 12px;
+  padding: 4px 10px;
 }
 
 .srs-btn:active {
-  transform: translateY(2px) !important;
+  transform: translateY(1px) !important;
 }
 
 /* Again */
@@ -630,13 +630,13 @@ body.dark-mode .timer-pulse-critical {
   background: rgba(254, 242, 242, 0.8);
   border-color: rgba(239, 68, 68, 0.2) !important;
   color: #ef4444;
-  box-shadow: 0 4px 0 rgba(239, 68, 68, 0.1);
+  box-shadow: 0 2px 0 rgba(239, 68, 68, 0.1);
 }
 .srs-btn.again:hover {
   background: #fef2f2;
   border-color: #ef4444 !important;
-  box-shadow: 0 6px 0 rgba(239, 68, 68, 0.15);
-  transform: translateY(-2px);
+  box-shadow: 0 3px 0 rgba(239, 68, 68, 0.15);
+  transform: translateY(-1px);
 }
 .srs-btn.again:active {
   box-shadow: 0 1px 0 rgba(239, 68, 68, 0.1);
@@ -647,13 +647,13 @@ body.dark-mode .timer-pulse-critical {
   background: rgba(255, 247, 237, 0.8);
   border-color: rgba(249, 115, 22, 0.2) !important;
   color: #f97316;
-  box-shadow: 0 4px 0 rgba(249, 115, 22, 0.1);
+  box-shadow: 0 2px 0 rgba(249, 115, 22, 0.1);
 }
 .srs-btn.hard:hover {
   background: #fff7ed;
   border-color: #f97316 !important;
-  box-shadow: 0 6px 0 rgba(249, 115, 22, 0.15);
-  transform: translateY(-2px);
+  box-shadow: 0 3px 0 rgba(249, 115, 22, 0.15);
+  transform: translateY(-1px);
 }
 .srs-btn.hard:active {
   box-shadow: 0 1px 0 rgba(249, 115, 22, 0.1);
@@ -664,13 +664,13 @@ body.dark-mode .timer-pulse-critical {
   background: rgba(239, 246, 255, 0.8);
   border-color: rgba(59, 130, 246, 0.2) !important;
   color: #3b82f6;
-  box-shadow: 0 4px 0 rgba(59, 130, 246, 0.1);
+  box-shadow: 0 2px 0 rgba(59, 130, 246, 0.1);
 }
 .srs-btn.good:hover {
   background: #eff6ff;
   border-color: #3b82f6 !important;
-  box-shadow: 0 6px 0 rgba(59, 130, 246, 0.15);
-  transform: translateY(-2px);
+  box-shadow: 0 3px 0 rgba(59, 130, 246, 0.15);
+  transform: translateY(-1px);
 }
 .srs-btn.good:active {
   box-shadow: 0 1px 0 rgba(59, 130, 246, 0.1);
@@ -681,13 +681,13 @@ body.dark-mode .timer-pulse-critical {
   background: rgba(240, 253, 244, 0.8);
   border-color: rgba(16, 185, 129, 0.2) !important;
   color: #10b981;
-  box-shadow: 0 4px 0 rgba(16, 185, 129, 0.1);
+  box-shadow: 0 2px 0 rgba(16, 185, 129, 0.1);
 }
 .srs-btn.easy:hover {
   background: #f0fdf4;
   border-color: #10b981 !important;
-  box-shadow: 0 6px 0 rgba(16, 185, 129, 0.15);
-  transform: translateY(-2px);
+  box-shadow: 0 3px 0 rgba(16, 185, 129, 0.15);
+  transform: translateY(-1px);
 }
 .srs-btn.easy:active {
   box-shadow: 0 1px 0 rgba(16, 185, 129, 0.1);
@@ -698,7 +698,7 @@ body.dark-mode .srs-btn.again {
   background: rgba(127, 29, 29, 0.4);
   border-color: rgba(239, 68, 68, 0.3) !important;
   color: #fca5a5;
-  box-shadow: 0 4px 0 rgba(0,0,0,0.3);
+  box-shadow: 0 2px 0 rgba(0,0,0,0.3);
 }
 body.dark-mode .srs-btn.again:hover {
   background: rgba(127, 29, 29, 0.6);
@@ -709,7 +709,7 @@ body.dark-mode .srs-btn.hard {
   background: rgba(124, 45, 18, 0.4);
   border-color: rgba(249, 115, 22, 0.3) !important;
   color: #ffedd5;
-  box-shadow: 0 4px 0 rgba(0,0,0,0.3);
+  box-shadow: 0 2px 0 rgba(0,0,0,0.3);
 }
 body.dark-mode .srs-btn.hard:hover {
   background: rgba(124, 45, 18, 0.6);
@@ -720,7 +720,7 @@ body.dark-mode .srs-btn.good {
   background: rgba(30, 58, 138, 0.4);
   border-color: rgba(59, 130, 246, 0.3) !important;
   color: #dbeafe;
-  box-shadow: 0 4px 0 rgba(0,0,0,0.3);
+  box-shadow: 0 2px 0 rgba(0,0,0,0.3);
 }
 body.dark-mode .srs-btn.good:hover {
   background: rgba(30, 58, 138, 0.6);
@@ -731,7 +731,7 @@ body.dark-mode .srs-btn.easy {
   background: rgba(6, 78, 59, 0.4);
   border-color: rgba(16, 185, 129, 0.3) !important;
   color: #d1fae5;
-  box-shadow: 0 4px 0 rgba(0,0,0,0.3);
+  box-shadow: 0 2px 0 rgba(0,0,0,0.3);
 }
 body.dark-mode .srs-btn.easy:hover {
   background: rgba(6, 78, 59, 0.6);

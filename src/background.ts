@@ -2,6 +2,49 @@ import { addWord, getLearningWords, markWordMastered } from './lib/db';
 import { syncToGithub } from './lib/github';
 import { subscribeToSettings } from './lib/settings';
 import { polishWritingWithAI } from './lib/translator';
+import { checkAndNotifyPendingTodos, updateChromeExtensionBadge } from './lib/todo';
+
+function setupTodoAlarms(intervalMinutes: number = 15) {
+  if (typeof chrome !== 'undefined' && chrome.alarms) {
+    chrome.alarms.create('check_todo_reminders', {
+      periodInMinutes: Math.max(1, intervalMinutes),
+    });
+  }
+}
+
+function setupGithubAutoSyncAlarm(enabled: boolean = false, intervalHours: number = 12) {
+  if (typeof chrome !== 'undefined' && chrome.alarms) {
+    if (enabled) {
+      chrome.alarms.create('github_auto_sync', {
+        periodInMinutes: Math.max(60, intervalHours * 60),
+      });
+    } else {
+      chrome.alarms.clear('github_auto_sync');
+    }
+  }
+}
+
+if (typeof chrome !== 'undefined' && chrome.alarms) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === 'check_todo_reminders') {
+      checkAndNotifyPendingTodos().catch((err) => console.error('Todo reminder alarm failed:', err));
+    }
+    if (alarm.name === 'github_auto_sync') {
+      syncToGithub()
+        .then(() => console.log('Periodic GitHub auto-sync succeeded.'))
+        .catch((err) => console.warn('Periodic GitHub auto-sync failed:', err));
+    }
+  });
+}
+
+if (typeof chrome !== 'undefined' && chrome.notifications) {
+  chrome.notifications.onClicked.addListener((notificationId) => {
+    if (notificationId.startsWith('todo-reminder-')) {
+      const url = chrome.runtime.getURL('index.html#/todos');
+      chrome.tabs.create({ url }).catch(() => {});
+    }
+  });
+}
 
 async function startChatGPTCompanion(): Promise<{ pairingToken: string }> {
   let reply: { ok?: boolean; pairingToken?: string; error?: string };
@@ -93,11 +136,18 @@ if (typeof chrome !== 'undefined') {
 
 chrome.runtime.onInstalled.addListener(() => {
   setupProxyHeaderRules();
+  setupTodoAlarms();
+  updateChromeExtensionBadge().catch(() => {});
   chrome.contextMenus.create({
     id: 'open-sidepanel-selection',
     title: 'Dịch với English Extension',
     contexts: ['selection']
   });
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  setupTodoAlarms();
+  updateChromeExtensionBadge().catch(() => {});
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -242,10 +292,35 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
+
+  if (request.action === 'REFRESH_TODO_BADGE') {
+    updateChromeExtensionBadge()
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (request.action === 'CHECK_TODO_REMINDERS') {
+    checkAndNotifyPendingTodos()
+      .then((res) => sendResponse({ ok: true, ...res }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
 });
 
 // Subscribe to settings and update the Chrome uninstall URL to the user's GitHub backup repository
 subscribeToSettings((settings) => {
+  if (settings.todo_reminder_interval) {
+    setupTodoAlarms(settings.todo_reminder_interval);
+  }
+  updateChromeExtensionBadge().catch(() => {});
+
+  if (settings.enable_auto_github_sync && settings.github_repo && settings.github_token) {
+    setupGithubAutoSyncAlarm(true, settings.auto_github_sync_interval_hours || 12);
+  } else {
+    setupGithubAutoSyncAlarm(false);
+  }
+
   if (settings.github_repo) {
     const cleanRepo = settings.github_repo.replace('https://github.com/', '').replace(/^\/+|\/+$/g, '');
     const uninstallUrl = `https://github.com/${cleanRepo}`;

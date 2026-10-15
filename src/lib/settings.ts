@@ -22,6 +22,11 @@ export interface Settings {
   previous_ai_provider?: 'gemini' | 'openai' | 'deepseek' | 'chatgpt_web' | 'ollama' | 'none';
   enable_passive_highlight?: boolean;
   enable_writing_assistant?: boolean;
+  enable_todo_reminders?: boolean;
+  todo_reminder_interval?: number; // in minutes
+  show_todo_badge?: boolean;
+  enable_auto_github_sync?: boolean;
+  auto_github_sync_interval_hours?: number; // in hours, default 12
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -48,6 +53,11 @@ const DEFAULT_SETTINGS: Settings = {
   daily_review_goal: 10,
   enable_passive_highlight: true,
   enable_writing_assistant: true,
+  enable_todo_reminders: true,
+  todo_reminder_interval: 15,
+  show_todo_badge: true,
+  enable_auto_github_sync: false,
+  auto_github_sync_interval_hours: 12,
 };
 
 // Mock fallback for tests/local web dev

@@ -17,7 +17,7 @@ const manifest = defineManifest({
   action: {
     default_popup: 'index.html',
   },
-  permissions: ['storage', 'activeTab', 'scripting', 'contextMenus', 'sidePanel', 'nativeMessaging', 'declarativeNetRequest'],
+  permissions: ['storage', 'activeTab', 'scripting', 'contextMenus', 'sidePanel', 'nativeMessaging', 'declarativeNetRequest', 'alarms', 'notifications'],
   host_permissions: ['<all_urls>'],
   background: {
     service_worker: 'src/background.ts',

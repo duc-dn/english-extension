@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Form, Input, InputNumber, Button, Select, Card, Typography, message, Divider, Space, Modal, Switch, Alert, Tag, Segmented, Row, Col } from 'antd';
-import { Save, CloudUpload, CloudDownload, Sparkles, ExternalLink, RefreshCw, Zap, Key } from 'lucide-react';
+import { Save, CloudUpload, CloudDownload, Sparkles, ExternalLink, RefreshCw, Zap, Key, Bell, CheckSquare } from 'lucide-react';
 import { getSettings, saveSettings, useSettings, type Settings } from '../lib/settings';
 import { syncToGithub, syncFromGithub } from '../lib/github';
 import { translate } from '../lib/localization';
@@ -137,6 +137,23 @@ export const SettingsPage: React.FC = () => {
       message.error(errorResult.message);
     } finally {
       setTestingAi(false);
+    }
+  };
+
+  const handleTestTodoNotification = () => {
+    if (typeof chrome !== 'undefined' && chrome.notifications) {
+      chrome.notifications.create('test-todo-notification', {
+        type: 'basic',
+        iconUrl: 'logo.png',
+        title: currentLang === 'vi' ? '⏰ Nhắc nhở EngExt Pro' : '⏰ EngExt Pro Task Reminder',
+        message: currentLang === 'vi' 
+          ? 'Hệ thống thông báo nhắc nhở nhiệm vụ học tập đang hoạt động tốt!' 
+          : 'Task reminder notification system is active and working!',
+        priority: 2,
+      });
+      message.success(translate('todoTestNotificationSuccess', currentLang));
+    } else {
+      message.info(currentLang === 'vi' ? 'Thông báo trình duyệt hoạt động khi cài đặt extension.' : 'Browser notifications run within Chrome extension.');
     }
   };
 
@@ -369,6 +386,63 @@ export const SettingsPage: React.FC = () => {
               <Text>{currentLang === 'vi' ? 'Tự động bắt đầu phiên tiếp theo' : 'Auto-start next session'}</Text>
             </div>
           </div>
+
+          <Divider />
+          <Title level={4} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <CheckSquare size={20} color="#0284c7" /> {translate('todoReminderSettingsTitle', currentLang)}
+          </Title>
+
+          <Row gutter={[24, 16]} style={{ marginBottom: 12 }}>
+            <Col xs={24} sm={12}>
+              <Form.Item 
+                name="enable_todo_reminders" 
+                label={translate('todoEnableReminders', currentLang)} 
+                valuePropName="checked"
+                extra={translate('todoEnableRemindersDesc', currentLang)}
+              >
+                <Switch />
+              </Form.Item>
+            </Col>
+
+            <Col xs={24} sm={12}>
+              <Form.Item 
+                name="show_todo_badge" 
+                label={translate('todoShowBadge', currentLang)} 
+                valuePropName="checked"
+                extra={translate('todoShowBadgeDesc', currentLang)}
+              >
+                <Switch />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={[24, 16]} style={{ alignItems: 'flex-start' }}>
+            <Col xs={24} sm={12}>
+              <Form.Item 
+                name="todo_reminder_interval" 
+                label={translate('todoReminderInterval', currentLang)}
+              >
+                <Select style={{ width: '100%' }}>
+                  <Option value={10}>{translate('todoReminderIntervalMinutes', currentLang, { minutes: 10 })}</Option>
+                  <Option value={15}>{translate('todoReminderIntervalMinutes', currentLang, { minutes: 15 })}</Option>
+                  <Option value={30}>{translate('todoReminderIntervalMinutes', currentLang, { minutes: 30 })}</Option>
+                  <Option value={60}>{translate('todoReminderIntervalMinutes', currentLang, { minutes: 60 })}</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+
+            <Col xs={24} sm={12}>
+              <div style={{ paddingTop: 30 }}>
+                <Button 
+                  icon={<Bell size={15} color="#8b5cf6" />} 
+                  onClick={handleTestTodoNotification}
+                  style={{ borderRadius: 8, fontWeight: 600 }}
+                >
+                  {translate('todoTestNotification', currentLang)}
+                </Button>
+              </div>
+            </Col>
+          </Row>
 
           <Divider />
           <Title level={4}>{translate('aiProviderTitle', currentLang)}</Title>
@@ -731,31 +805,31 @@ export const SettingsPage: React.FC = () => {
                   <Space wrap>
                     <Button
                       type="primary"
-                      icon={<Sparkles size={16} />}
+                      icon={<Sparkles size={14} />}
                       loading={fetchingToken}
                       onClick={() => handleFetchChatGPTToken()}
-                      style={{ background: '#10b981', borderColor: '#10b981', borderRadius: 20, fontWeight: 600 }}
+                      style={{ background: '#10b981', borderColor: '#10b981', borderRadius: 8, fontWeight: 600, height: 32, fontSize: 13 }}
                     >
                       {translate('chatgptLoginOAuthBtn', currentLang)}
                     </Button>
-                    <Button loading={fetchingToken} onClick={() => handleFetchChatGPTToken(true)}>
+                    <Button loading={fetchingToken} onClick={() => handleFetchChatGPTToken(true)} style={{ borderRadius: 8, height: 32, fontSize: 13 }}>
                       {currentLang === 'vi' ? 'Đăng nhập tài khoản khác' : 'Use another account'}
                     </Button>
-                    <Button onClick={handleCheckChatGPT}>
+                    <Button onClick={handleCheckChatGPT} style={{ borderRadius: 8, height: 32, fontSize: 13 }}>
                       {currentLang === 'vi' ? 'Kiểm tra kết nối' : 'Check connection'}
                     </Button>
                     <Button
-                      icon={<RefreshCw size={16} />}
+                      icon={<RefreshCw size={14} />}
                       loading={fetchingModels}
                       onClick={() => handleFetchChatGPTModels()}
-                      style={{ borderRadius: 20 }}
+                      style={{ borderRadius: 8, height: 32, fontSize: 13 }}
                     >
                       {currentLang === 'vi' ? '🔄 Tự động tải Models' : '🔄 Auto-detect Models'}
                     </Button>
                     <Button
-                      icon={<ExternalLink size={16} />}
+                      icon={<ExternalLink size={14} />}
                       onClick={() => window.open('https://chatgpt.com', '_blank')}
-                      style={{ borderRadius: 20 }}
+                      style={{ borderRadius: 8, height: 32, fontSize: 13 }}
                     >
                       {translate('chatgptOpenWebBtn', currentLang)}
                     </Button>
@@ -814,10 +888,10 @@ export const SettingsPage: React.FC = () => {
                   </div>
                   <Button
                     type="primary"
-                    icon={<Zap size={16} />}
+                    icon={<Zap size={14} />}
                     loading={testingAi}
                     onClick={handleTestAI}
-                    style={{ background: '#8b5cf6', borderColor: '#8b5cf6', borderRadius: 20, fontWeight: 600 }}
+                    style={{ background: '#8b5cf6', borderColor: '#8b5cf6', borderRadius: 8, fontWeight: 600, height: 32, fontSize: 13 }}
                   >
                     {translate('testAiBtn', currentLang)}
                   </Button>
@@ -868,15 +942,58 @@ export const SettingsPage: React.FC = () => {
             <Input.Password placeholder="Enter GitHub Token (ghp_...)" />
           </Form.Item>
 
+          <Row gutter={16}>
+            <Col xs={24} sm={14}>
+              <Form.Item 
+                name="enable_auto_github_sync" 
+                valuePropName="checked" 
+                label={translate('enableAutoGithubSyncLabel', currentLang)}
+                tooltip="Tự động đồng bộ toàn bộ từ vựng, ngữ pháp và tasks lên GitHub định kỳ trong nền"
+              >
+                <Switch />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={10}>
+              <Form.Item 
+                name="auto_github_sync_interval_hours" 
+                label={translate('autoGithubSyncIntervalLabel', currentLang)}
+              >
+                <Select
+                  options={[
+                    { value: 6, label: currentLang === 'vi' ? 'Mỗi 6 tiếng' : 'Every 6 hours' },
+                    { value: 12, label: currentLang === 'vi' ? 'Mỗi 12 tiếng' : 'Every 12 hours' },
+                    { value: 24, label: currentLang === 'vi' ? 'Mỗi 24 tiếng' : 'Every 24 hours' },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
           <Form.Item style={{ marginTop: 40, marginBottom: 8, textAlign: 'center' }}>
-            <Space size="large" wrap>
-              <Button type="primary" htmlType="submit" icon={<Save size={16} />} loading={loading} size="large" style={{ background: '#8b5cf6', width: 180, fontWeight: 600, borderRadius: 24 }}>
+            <Space size="middle" wrap>
+              <Button 
+                type="primary" 
+                htmlType="submit" 
+                icon={<Save size={15} />} 
+                loading={loading} 
+                style={{ background: '#8b5cf6', minWidth: 150, height: 36, padding: '0 20px', fontWeight: 600, borderRadius: 8, fontSize: 13.5, boxShadow: '0 2px 6px rgba(139, 92, 246, 0.25)' }}
+              >
                 {translate('btnSaveSettings', currentLang)}
               </Button>
-              <Button onClick={handleSync} icon={<CloudUpload size={16} />} loading={syncing} size="large" style={{ width: 180, fontWeight: 600, borderRadius: 24, color: isDark ? '#f8fafc' : '#0f172a', borderColor: isDark ? '#334155' : '#cbd5e1' }}>
+              <Button 
+                onClick={handleSync} 
+                icon={<CloudUpload size={15} />} 
+                loading={syncing} 
+                style={{ minWidth: 150, height: 36, padding: '0 20px', fontWeight: 600, borderRadius: 8, fontSize: 13.5, color: isDark ? '#f8fafc' : '#0f172a', borderColor: isDark ? '#334155' : '#cbd5e1' }}
+              >
                 {translate('btnSyncGithub', currentLang)}
               </Button>
-              <Button onClick={handlePull} icon={<CloudDownload size={16} />} loading={pulling} size="large" style={{ width: 180, fontWeight: 600, borderRadius: 24, color: isDark ? '#f8fafc' : '#0f172a', borderColor: isDark ? '#334155' : '#cbd5e1' }}>
+              <Button 
+                onClick={handlePull} 
+                icon={<CloudDownload size={15} />} 
+                loading={pulling} 
+                style={{ minWidth: 150, height: 36, padding: '0 20px', fontWeight: 600, borderRadius: 8, fontSize: 13.5, color: isDark ? '#f8fafc' : '#0f172a', borderColor: isDark ? '#334155' : '#cbd5e1' }}
+              >
                 {translate('btnPullGithub', currentLang)}
               </Button>
             </Space>

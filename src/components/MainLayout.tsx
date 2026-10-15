@@ -3,7 +3,8 @@ import { Layout, Button, Tooltip } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { 
   BookMarked, Layers, LayoutDashboard, Settings, BookOpen, 
-  CheckSquare, Globe, Timer, Sun, Moon, Sparkles, ChevronRight 
+  CheckSquare, ListTodo, Globe, Timer, Sun, Moon, Sparkles, ChevronRight,
+  BarChart3
 } from 'lucide-react';
 import { useSettings, saveSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
@@ -46,6 +47,9 @@ export const MainLayout: React.FC = () => {
   const totalWords = words.length;
   const dueReviews = words.filter(w => w.next_review && new Date(w.next_review) <= new Date() && w.status !== 'mastered').length;
 
+  const pendingTodos = useLiveQuery(() => db.todos.filter(t => t.status === 'pending').toArray()) || [];
+  const pendingCount = pendingTodos.length;
+
   const navSections: NavSection[] = [
     {
       items: [
@@ -84,6 +88,23 @@ export const MainLayout: React.FC = () => {
           label: translate('quizzes', currentLang),
           badge: 'Quiz',
           badgeVariant: 'emerald'
+        },
+      ]
+    },
+    {
+      title: translate('tasksAndNotesSection', currentLang),
+      items: [
+        { 
+          key: '/todos/dashboard', 
+          icon: <BarChart3 size={17} />, 
+          label: translate('todoNavDashboard', currentLang),
+        },
+        { 
+          key: '/todos', 
+          icon: <ListTodo size={17} />, 
+          label: translate('todoNavTasks', currentLang),
+          badge: pendingCount > 0 ? `${pendingCount} ${currentLang === 'vi' ? 'chưa xong' : 'pending'}` : undefined,
+          badgeVariant: 'amber'
         },
       ]
     },

@@ -365,9 +365,20 @@ export const GrammarManager: React.FC = () => {
         </div>
         <Button 
           type="primary" 
-          size="large" 
-          style={{ borderRadius: 10, fontWeight: 600, background: '#4f46e5', border: 'none', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)' }} 
-          icon={<Plus size={18} />} 
+          style={{ 
+            height: 32, 
+            padding: '0 14px', 
+            borderRadius: 8, 
+            fontSize: 13, 
+            fontWeight: 600, 
+            background: '#4f46e5', 
+            border: 'none', 
+            boxShadow: '0 2px 6px rgba(79, 70, 229, 0.25)', 
+            display: 'inline-flex', 
+            alignItems: 'center', 
+            gap: 5 
+          }} 
+          icon={<Plus size={14} />} 
           onClick={() => setIsModalOpen(true)}
         >
           {translate('addGrammarTitle', currentLang)}
@@ -431,17 +442,18 @@ export const GrammarManager: React.FC = () => {
           />
           <Button
             type="primary"
-            size="large"
             loading={isSearchingAI}
-            icon={<Sparkles size={16} />}
+            icon={<Sparkles size={14} />}
             onClick={() => handleAISearch()}
             style={{
-              borderRadius: 10,
-              fontWeight: 700,
+              height: 38,
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 600,
               background: '#4f46e5',
               border: 'none',
-              boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)',
-              padding: '0 20px'
+              boxShadow: '0 2px 6px rgba(79, 70, 229, 0.25)',
+              padding: '0 16px'
             }}
           >
             {translate('aiGrammarAnalyzeBtn', currentLang)}

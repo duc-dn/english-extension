@@ -10,6 +10,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { GrammarManager } from './pages/GrammarManager';
 import { QuizPage } from './pages/QuizPage';
 import { PomodoroPage } from './pages/PomodoroPage';
+import { TodoPage } from './pages/TodoPage';
 import { CompactView } from './components/CompactView';
 import './App.css';
 
@@ -136,8 +137,10 @@ function App() {
             colorBorderSecondary: isDark ? 'rgba(255, 255, 255, 0.08)' : '#e0f2fe',
           },
           Button: {
-            controlHeight: 38,
-            borderRadius: 10,
+            controlHeight: 34,
+            controlHeightSM: 28,
+            borderRadius: 8,
+            borderRadiusSM: 6,
             colorPrimary: '#0284c7',
             fontWeight: 600,
           },
@@ -181,6 +184,9 @@ function App() {
               <Route path="grammar" element={<GrammarManager />} />
               <Route path="flashcards" element={<FlashcardReview />} />
               <Route path="quizzes" element={<QuizPage />} />
+              <Route path="todos" element={<TodoPage defaultTab="tasks" />} />
+              <Route path="todos/dashboard" element={<TodoPage defaultTab="dashboard" />} />
+              <Route path="todos/tasks" element={<TodoPage defaultTab="tasks" />} />
               <Route path="pomodoro" element={<PomodoroPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>

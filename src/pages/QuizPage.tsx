@@ -484,7 +484,6 @@ export const QuizPage: React.FC = () => {
 
             <Button 
               type="primary" 
-              size="large" 
               disabled={!hasEnoughWords}
               onClick={async () => {
                 await startNewRound();
@@ -492,18 +491,20 @@ export const QuizPage: React.FC = () => {
               }}
               style={hasEnoughWords ? { 
                 width: '100%',
-                borderRadius: 20, 
+                borderRadius: 8, 
                 fontWeight: 600, 
                 background: '#4f46e5', 
                 border: 'none', 
-                height: 48,
-                boxShadow: '0 4px 14px rgba(79, 70, 229, 0.25)',
+                height: 38,
+                fontSize: 14,
+                boxShadow: '0 2px 8px rgba(79, 70, 229, 0.25)',
                 color: '#ffffff'
               } : {
                 width: '100%',
-                borderRadius: 20, 
+                borderRadius: 8, 
                 fontWeight: 600, 
-                height: 48
+                height: 38,
+                fontSize: 14
               }}
             >
               {translate('btnStartQuiz', currentLang)} 🚀
@@ -572,21 +573,19 @@ export const QuizPage: React.FC = () => {
             {missedInSession.length > 0 && (
               <Button 
                 icon={<RefreshCw size={14} />} 
-                size="large" 
                 onClick={() => startNewRound(missedInSession)}
-                style={{ borderRadius: 24, fontWeight: 600, borderColor: '#ef4444', color: '#ef4444', height: 44 }}
+                style={{ borderRadius: 8, fontWeight: 600, borderColor: '#ef4444', color: '#ef4444', height: 34, padding: '0 16px', fontSize: 13 }}
               >
                 {translate('btnRetryWrong', currentLang, { count: missedInSession.length })}
               </Button>
             )}
-            <Button size="large" onClick={() => setIsStarted(false)} style={{ borderRadius: 24, fontWeight: 600, height: 44, padding: '0 24px' }}>
+            <Button onClick={() => setIsStarted(false)} style={{ borderRadius: 8, fontWeight: 600, height: 34, padding: '0 16px', fontSize: 13 }}>
               {translate('btnSelectOtherTopic', currentLang)}
             </Button>
             <Button 
               type="primary" 
-              size="large" 
               onClick={() => startNewRound()}
-              style={{ borderRadius: 24, fontWeight: 600, background: '#4f46e5', border: 'none', height: 44, padding: '0 24px', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)' }}
+              style={{ borderRadius: 8, fontWeight: 600, background: '#4f46e5', border: 'none', height: 34, padding: '0 16px', fontSize: 13, boxShadow: '0 2px 6px rgba(79, 70, 229, 0.2)' }}
             >
               {translate('btnRetryTopic', currentLang)}
             </Button>
@@ -722,16 +721,14 @@ export const QuizPage: React.FC = () => {
                     placeholder={currentLang === 'vi' ? 'Gõ từ tiếng Anh vào đây...' : 'Type the English word here...'}
                     value={typedInput}
                     onChange={(e) => setTypedInput(e.target.value)}
-                    size="large"
-                    style={{ borderRadius: 12, fontSize: 16 }}
+                    style={{ borderRadius: 8, fontSize: 14 }}
                     autoFocus
                   />
                   <Button 
                     type="primary" 
-                    size="large" 
                     onClick={handleFillBlankSubmit}
                     disabled={!typedInput.trim()}
-                    style={{ borderRadius: 12, background: '#8b5cf6', fontWeight: 600, padding: '0 24px' }}
+                    style={{ borderRadius: 8, background: '#8b5cf6', fontWeight: 600, padding: '0 18px', height: 34, fontSize: 13 }}
                   >
                     {currentLang === 'vi' ? 'Kiểm tra' : 'Check'}
                   </Button>
@@ -789,12 +786,11 @@ export const QuizPage: React.FC = () => {
                   <div style={{ marginTop: 12, textAlign: 'right' }}>
                     <Button 
                       type="primary" 
-                      size="large" 
                       loading={isEvaluating}
                       onClick={handleAIWritingSubmit}
                       disabled={!typedInput.trim()}
-                      icon={<Sparkles size={16} />}
-                      style={{ borderRadius: 12, background: '#4f46e5', border: 'none', fontWeight: 600, boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)' }}
+                      icon={<Sparkles size={14} />}
+                      style={{ borderRadius: 8, background: '#4f46e5', border: 'none', fontWeight: 600, height: 34, padding: '0 16px', fontSize: 13, boxShadow: '0 2px 6px rgba(79, 70, 229, 0.2)' }}
                     >
                       {currentLang === 'vi' ? 'Chấm điểm AI ✨' : 'Evaluate with AI ✨'}
                     </Button>
@@ -835,9 +831,8 @@ export const QuizPage: React.FC = () => {
             <div style={{ marginTop: 24, animation: 'fadeIn 0.3s' }}>
               <Button 
                 type="primary" 
-                size="large" 
                 onClick={handleNext} 
-                style={{ borderRadius: 24, fontWeight: 600, background: '#4f46e5', border: 'none', width: 220, height: 44, boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)' }}
+                style={{ borderRadius: 8, fontWeight: 600, background: '#4f46e5', border: 'none', minWidth: 160, height: 36, fontSize: 13.5, boxShadow: '0 2px 6px rgba(79, 70, 229, 0.2)' }}
               >
                 {questionIndex + 1 === roundWords.length ? translate('btnFinishQuiz', currentLang) : translate('btnNextQuestion', currentLang)}
               </Button>

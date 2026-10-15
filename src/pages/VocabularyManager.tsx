@@ -558,18 +558,20 @@ export const VocabularyManager: React.FC = () => {
             onChange={event => void handleImport(event.target.files?.[0])}
           />
           <Tooltip title={currentLang === 'vi' ? 'CSV cần cột word, meaning; các thẻ cách nhau bằng dấu chấm phẩy.' : 'CSV needs word and meaning columns; separate tags with semicolons.'}>
-            <Button icon={<Upload size={16} />} loading={isImporting} onClick={() => importInputRef.current?.click()} style={{ borderRadius: 10 }}>
+            <Button icon={<Upload size={14} />} loading={isImporting} onClick={() => importInputRef.current?.click()} style={{ borderRadius: 8, height: 32, fontSize: 13, fontWeight: 500 }}>
               {currentLang === 'vi' ? 'Nhập CSV' : 'Import CSV'}
             </Button>
           </Tooltip>
-          <Button icon={<Download size={16} />} onClick={handleExport} disabled={!words.length} style={{ borderRadius: 10 }}>
-            {currentLang === 'vi' ? 'Xuất CSV' : 'Export CSV'}
+          <Button icon={<Download size={14} />} onClick={handleExport} disabled={!words.length} style={{ borderRadius: 8, height: 32, fontSize: 13, fontWeight: 500 }}>
+              {currentLang === 'vi' ? 'Xuất CSV' : 'Export CSV'}
           </Button>
           <Button
-            icon={<Sparkles size={16} color="#8b5cf6" />}
+            icon={<Sparkles size={14} color="#8b5cf6" />}
             onClick={() => setIsAiGenModalOpen(true)}
             style={{
-              borderRadius: 10,
+              borderRadius: 8,
+              height: 32,
+              fontSize: 13,
               fontWeight: 600,
               color: isDark ? '#c4b5fd' : '#8b5cf6',
               borderColor: isDark ? 'rgba(139, 92, 246, 0.4)' : 'rgba(139, 92, 246, 0.35)',
@@ -580,8 +582,8 @@ export const VocabularyManager: React.FC = () => {
           </Button>
           <Button
             type="primary"
-            style={{ borderRadius: 10, fontWeight: 600, background: '#4f46e5', border: 'none', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)', height: 38 }}
-            icon={<Plus size={16} />}
+            style={{ borderRadius: 8, height: 32, padding: '0 14px', fontSize: 13, fontWeight: 600, background: '#4f46e5', border: 'none', boxShadow: '0 2px 6px rgba(79, 70, 229, 0.25)' }}
+            icon={<Plus size={14} />}
             onClick={() => setIsModalOpen(true)}
           >
             {translate('btnAddNewWord', currentLang)}
@@ -659,19 +661,20 @@ export const VocabularyManager: React.FC = () => {
             <Space wrap size="middle">
               <Button
                 type="primary"
-                size="large"
-                icon={<Plus size={16} />}
+                icon={<Plus size={14} />}
                 onClick={() => setIsModalOpen(true)}
-                style={{ borderRadius: 10, fontWeight: 700, background: '#4f46e5', border: 'none' }}
+                style={{ borderRadius: 8, height: 34, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#4f46e5', border: 'none' }}
               >
                 {translate('btnAddNewWord', currentLang)}
               </Button>
               <Button
-                size="large"
-                icon={<Sparkles size={16} color="#8b5cf6" />}
+                icon={<Sparkles size={14} color="#8b5cf6" />}
                 onClick={() => setIsAiGenModalOpen(true)}
                 style={{
-                  borderRadius: 10,
+                  borderRadius: 8,
+                  height: 34,
+                  padding: '0 16px',
+                  fontSize: 13,
                   fontWeight: 600,
                   borderColor: isDark ? 'rgba(139, 92, 246, 0.4)' : 'rgba(139, 92, 246, 0.35)',
                   background: isDark ? 'rgba(139, 92, 246, 0.15)' : 'rgba(139, 92, 246, 0.06)',
@@ -857,11 +860,12 @@ export const VocabularyManager: React.FC = () => {
           onClick={handleGenerateTopicWords}
           style={{
             borderRadius: 8,
-            fontWeight: 700,
+            fontWeight: 600,
+            fontSize: 13.5,
             background: '#4f46e5',
             border: 'none',
-            boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)',
-            height: 40,
+            boxShadow: '0 2px 6px rgba(79, 70, 229, 0.2)',
+            height: 36,
             marginBottom: 20
           }}
         >
@@ -946,17 +950,17 @@ export const VocabularyManager: React.FC = () => {
             <Button
               type="primary"
               block
-              size="large"
-              icon={<Plus size={16} />}
+              icon={<Plus size={14} />}
               onClick={handleSaveGeneratedWords}
               disabled={selectedWordIndices.size === 0}
               style={{
                 marginTop: 16,
                 borderRadius: 8,
-                fontWeight: 700,
+                fontWeight: 600,
                 background: '#10b981',
                 border: 'none',
-                height: 42
+                height: 36,
+                fontSize: 13
               }}
             >
               {translate('aiVocabSaveSelected', currentLang, { count: selectedWordIndices.size })}

@@ -58,6 +58,71 @@ export const playPomodoroChime = (type: 'focus_complete' | 'break_complete' = 'f
   }
 };
 
+export const playTaskCompleteChime = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    if (ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+      ctx.resume().catch(() => {});
+    }
+    const now = ctx.currentTime;
+    const notes = [
+      { freq: 587.33, delay: 0.0, dur: 0.35 },  // D5
+      { freq: 880.00, delay: 0.1, dur: 0.55 },  // A5
+    ];
+    notes.forEach(({ freq, delay, dur }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + delay);
+      gain.gain.setValueAtTime(0.001, now + delay);
+      gain.gain.exponentialRampToValueAtTime(0.15, now + delay + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + delay);
+      osc.stop(now + delay + dur + 0.05);
+    });
+  } catch (err) {
+    console.warn("Could not play task complete chime:", err);
+  }
+};
+
+export const playReminderAlertChime = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    if (ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+      ctx.resume().catch(() => {});
+    }
+    const now = ctx.currentTime;
+    const notes = [
+      { freq: 659.25, delay: 0.0, dur: 0.3 },  // E5
+      { freq: 523.25, delay: 0.12, dur: 0.3 }, // C5
+      { freq: 783.99, delay: 0.24, dur: 0.6 }, // G5
+    ];
+    notes.forEach(({ freq, delay, dur }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + delay);
+      gain.gain.setValueAtTime(0.001, now + delay);
+      gain.gain.exponentialRampToValueAtTime(0.2, now + delay + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + delay);
+      osc.stop(now + delay + dur + 0.05);
+    });
+  } catch (err) {
+    console.warn("Could not play reminder alert chime:", err);
+  }
+};
+
 // Ambient Sound Generator for Focus Sessions (100% Offline Web Audio API)
 let ambientSource: AudioBufferSourceNode | null = null;
 let ambientGain: GainNode | null = null;

@@ -229,16 +229,16 @@ export const FlashcardReview: React.FC = () => {
 
             <Button 
               type="primary" 
-              size="large" 
               onClick={() => navigate('/vocabulary')}
               style={{ 
-                borderRadius: 24, 
+                borderRadius: 8, 
                 fontWeight: 600, 
+                fontSize: 13,
                 background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', 
                 border: 'none', 
-                height: 44, 
-                padding: '0 32px',
-                boxShadow: '0 8px 20px rgba(16, 185, 129, 0.2)'
+                height: 34, 
+                padding: '0 20px',
+                boxShadow: '0 2px 8px rgba(16, 185, 129, 0.25)'
               }}
             >
               {translate('btnAddNewWord', currentLang)} 🚀
@@ -341,17 +341,15 @@ export const FlashcardReview: React.FC = () => {
 
           <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: 24, marginBottom: 16 }}>
             <Button 
-              size="large" 
               onClick={() => setIsStarted(false)} 
-              style={{ borderRadius: 24, padding: '0 24px', height: 48, fontWeight: 600 }}
+              style={{ borderRadius: 8, padding: '0 18px', height: 34, fontSize: 13, fontWeight: 600 }}
             >
               {translate('otherTopic', currentLang)}
             </Button>
             <Button 
               type="primary" 
-              size="large" 
               onClick={fetchQueue} 
-              style={{ borderRadius: 24, padding: '0 24px', height: 48, fontWeight: 600, background: '#4f46e5', border: 'none', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)' }}
+              style={{ borderRadius: 8, padding: '0 18px', height: 34, fontSize: 13, fontWeight: 600, background: '#4f46e5', border: 'none', boxShadow: '0 2px 6px rgba(79, 70, 229, 0.25)' }}
             >
               {translate('reviewThisTopic', currentLang)}
             </Button>
@@ -641,7 +639,6 @@ export const FlashcardReview: React.FC = () => {
 
             <Button 
               type="primary" 
-              size="large" 
               disabled={tagWordCount === 0}
               onClick={async () => {
                 await fetchQueue();
@@ -649,18 +646,20 @@ export const FlashcardReview: React.FC = () => {
               }}
               style={tagWordCount > 0 ? { 
                 width: '100%',
-                borderRadius: 20, 
+                borderRadius: 8, 
                 fontWeight: 600, 
                 background: '#4f46e5', 
                 border: 'none', 
-                height: 48,
-                boxShadow: '0 4px 14px rgba(79, 70, 229, 0.25)',
+                height: 38,
+                fontSize: 14,
+                boxShadow: '0 2px 8px rgba(79, 70, 229, 0.25)',
                 color: '#ffffff'
               } : {
                 width: '100%',
-                borderRadius: 20, 
+                borderRadius: 8, 
                 fontWeight: 600, 
-                height: 48
+                height: 38,
+                fontSize: 14
               }}
             >
               {tagWordCount > 0 ? translate('btnStartReview', currentLang) : translate('noDueWords', currentLang)}

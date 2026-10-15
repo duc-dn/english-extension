@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Row, Col, Typography, Tooltip, Table, Tag, Progress, Button, Spin, message } from 'antd';
+import { Row, Col, Typography, Tooltip, Table, Tag, Progress, Button, Spin, message, Input } from 'antd';
 import { useNavigate } from 'react-router-dom';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { 
   BookOpen, 
   Calendar, 
@@ -15,6 +16,9 @@ import {
   Volume2, 
   Layers, 
   CheckSquare, 
+  Square,
+  CheckCircle2,
+  Plus,
   PlusCircle,
   TrendingUp,
   BrainCircuit,
@@ -25,12 +29,14 @@ import {
   Star
 } from 'lucide-react';
 import { ActivityCalendar } from 'react-activity-calendar';
-import { db, getWordsToReview, getFrequentlyMissedWords, getMasteryStats, addWord, type Word } from '../lib/db';
+import { db, getWordsToReview, getFrequentlyMissedWords, getMasteryStats, addWord, type Word, type DailyWord } from '../lib/db';
+import { getOrGenerateDailyWord } from '../lib/dailyWord';
 import { useSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
 import { getAIDailyInsight, type AIDailyInsight } from '../lib/translator';
 import { getTodayPomodoroStats } from '../lib/pomodoro';
-import { playAudio } from '../lib/audio';
+import { playAudio, playTaskCompleteChime } from '../lib/audio';
+import { addTodo, toggleTodoStatus, isDateToday, isDateOverdue, getTodayDateString } from '../lib/todo';
 
 const { Title } = Typography;
 
@@ -41,81 +47,7 @@ function localDateKey(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-interface CuratedWord {
-  word: string;
-  phonetic: string;
-  partOfSpeech: string;
-  vietnamese: string;
-  definition: string;
-  example: string;
-  level: string;
-}
 
-const WORDS_OF_THE_DAY: CuratedWord[] = [
-  {
-    word: 'Serendipity',
-    phonetic: '/ˌser.ənˈdɪp.ə.ti/',
-    partOfSpeech: 'noun',
-    vietnamese: 'Sự may mắn bất ngờ, cơ duyên kỳ diệu',
-    definition: 'The occurrence and development of events by chance in a happy or beneficial way.',
-    example: 'Finding this English learning space was a stroke of pure serendipity.',
-    level: 'C1 Advanced'
-  },
-  {
-    word: 'Resilience',
-    phonetic: '/rɪˈzɪl.jəns/',
-    partOfSpeech: 'noun',
-    vietnamese: 'Sự kiên cường, khả năng hồi phục mạnh mẽ',
-    definition: 'The capacity to recover quickly from difficulties; toughness and perseverance.',
-    example: 'True language fluency is built through daily dedication and steady resilience.',
-    level: 'B2 Upper-Int'
-  },
-  {
-    word: 'Eloquent',
-    phonetic: '/ˈel.ə.kwənt/',
-    partOfSpeech: 'adjective',
-    vietnamese: 'Lưu loát, truyền cảm, tài hùng biện',
-    definition: 'Fluent or persuasive in speaking or writing in a graceful manner.',
-    example: 'An eloquent speaker communicates nuanced ideas with clarity and grace.',
-    level: 'C1 Advanced'
-  },
-  {
-    word: 'Perseverance',
-    phonetic: '/ˌpɜː.sɪˈvɪə.rəns/',
-    partOfSpeech: 'noun',
-    vietnamese: 'Sự bền chí, lòng kiên trì vượt khó',
-    definition: 'Persistence in doing something despite difficulty or delay in achieving success.',
-    example: 'Mastering thousands of words requires regular practice and quiet perseverance.',
-    level: 'B2 Upper-Int'
-  },
-  {
-    word: 'Ubiquitous',
-    phonetic: '/juːˈbɪk.wɪ.təs/',
-    partOfSpeech: 'adjective',
-    vietnamese: 'Hiện diện ở khắp mọi nơi, phổ biến rộng rãi',
-    definition: 'Present, appearing, or found everywhere at the same time.',
-    example: 'AI assistants and smart learning tools have become truly ubiquitous.',
-    level: 'C2 Proficiency'
-  },
-  {
-    word: 'Meticulous',
-    phonetic: '/məˈtɪk.jə.ləs/',
-    partOfSpeech: 'adjective',
-    vietnamese: 'Tỉ mỉ, cẩn trọng từng chi tiết',
-    definition: 'Showing great attention to detail; very careful and precise.',
-    example: 'She takes meticulous notes on vocabulary collocations and pronunciation nuances.',
-    level: 'C1 Advanced'
-  },
-  {
-    word: 'Lucid',
-    phonetic: '/ˈluː.sɪd/',
-    partOfSpeech: 'adjective',
-    vietnamese: 'Rõ ràng, mạch lạc, dễ hiểu',
-    definition: 'Expressed clearly; easy to understand without ambiguity.',
-    example: 'The AI explanation gave a lucid overview of complex conditional sentences.',
-    level: 'B2 Upper-Int'
-  }
-];
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -128,6 +60,9 @@ export const Dashboard: React.FC = () => {
   const [masteryStats, setMasteryStats] = useState({ new: 0, learning: 0, reviewing: 0, mastered: 0, total: 0 });
   const [pomodoroStats, setPomodoroStats] = useState(() => getTodayPomodoroStats());
   const [isWotdSaved, setIsWotdSaved] = useState(false);
+  const [dailyWord, setDailyWord] = useState<DailyWord | null>(null);
+  const [isDailyWordLoading, setIsDailyWordLoading] = useState(false);
+  const [isFromAI, setIsFromAI] = useState(false);
 
   // AI Daily Study Insights state
   const [aiInsight, setAiInsight] = useState<AIDailyInsight | null>(null);
@@ -144,9 +79,67 @@ export const Dashboard: React.FC = () => {
     window.matchMedia('(prefers-color-scheme: dark)').matches
   );
 
-  // Curated Word of the Day calculation
-  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24));
-  const wordOfTheDay = WORDS_OF_THE_DAY[dayOfYear % WORDS_OF_THE_DAY.length];
+  // Live query for todos in Dashboard
+  const allTodos = useLiveQuery(() => db.todos.reverse().sortBy('createdAt')) || [];
+  const todayDateStr = getTodayDateString();
+  const todayTodos = allTodos.filter(t => isDateToday(t.dueDate) || (t.status === 'pending' && isDateOverdue(t.dueDate)));
+  const todayCompletedCount = todayTodos.filter(t => t.status === 'completed').length;
+  const overdueCount = allTodos.filter(t => t.status === 'pending' && isDateOverdue(t.dueDate)).length;
+  const [dashboardQuickTask, setDashboardQuickTask] = useState('');
+  const [quickTaskLoading, setQuickTaskLoading] = useState(false);
+
+  const handleDashboardQuickAdd = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!dashboardQuickTask.trim()) return;
+    setQuickTaskLoading(true);
+    try {
+      await addTodo({
+        title: dashboardQuickTask,
+        dueDate: todayDateStr,
+        priority: 'medium',
+        tags: ['General'],
+      });
+      setDashboardQuickTask('');
+      message.success(translate('todoAddSuccess', currentLang));
+    } catch {
+      message.error('Lỗi khi thêm nhiệm vụ');
+    } finally {
+      setQuickTaskLoading(false);
+    }
+  };
+
+  const handleDashboardToggle = async (id: string) => {
+    try {
+      const updated = await toggleTodoStatus(id);
+      if (updated?.status === 'completed') {
+        playTaskCompleteChime();
+        message.success(translate('todoCompletedSuccess', currentLang));
+      }
+    } catch {
+      message.error('Lỗi khi cập nhật trạng thái');
+    }
+  };
+
+  // Daily Word of the Day loader from AI / IndexedDB cache
+  const loadDailyWord = async (forceRefresh = false) => {
+    setIsDailyWordLoading(true);
+    try {
+      const res = await getOrGenerateDailyWord(forceRefresh);
+      setDailyWord(res.word);
+      setIsFromAI(res.isFromAI);
+
+      const existing = await db.words.filter(w => w.word.toLowerCase() === res.word.word.toLowerCase()).first();
+      setIsWotdSaved(!!existing);
+
+      if (forceRefresh) {
+        message.success(currentLang === 'vi' ? 'Đã đổi từ vựng mới thành công!' : 'Generated a new daily word!');
+      }
+    } catch (e) {
+      console.warn('Failed to load daily word:', e);
+    } finally {
+      setIsDailyWordLoading(false);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -159,10 +152,6 @@ export const Dashboard: React.FC = () => {
 
       const stats = await getMasteryStats();
       setMasteryStats(stats);
-
-      // Check if Word of the Day is already in DB
-      const existing = await db.words.filter(w => w.word.toLowerCase() === wordOfTheDay.word.toLowerCase()).first();
-      setIsWotdSaved(!!existing);
 
       // Generate activity data
       const words = await db.words.toArray();
@@ -232,7 +221,8 @@ export const Dashboard: React.FC = () => {
     };
     
     fetchData();
-  }, [wordOfTheDay.word]);
+    loadDailyWord(false);
+  }, []);
 
   const loadAIInsight = async () => {
     setIsLoadingInsight(true);
@@ -252,16 +242,17 @@ export const Dashboard: React.FC = () => {
   };
 
   const handleSaveWordOfTheDay = async () => {
+    if (!dailyWord) return;
     try {
       await addWord({
-        word: wordOfTheDay.word,
-        meaning: wordOfTheDay.vietnamese,
-        phonetic: wordOfTheDay.phonetic,
-        example: wordOfTheDay.example,
-        tags: ['word-of-the-day', 'c1-vocab'],
-        description: wordOfTheDay.definition
+        word: dailyWord.word,
+        meaning: dailyWord.vietnamese,
+        phonetic: dailyWord.phonetic,
+        example: dailyWord.example,
+        tags: ['word-of-the-day', 'daily-vocab'],
+        description: dailyWord.definition
       });
-      message.success(currentLang === 'vi' ? `Đã lưu "${wordOfTheDay.word}" vào kho từ vựng!` : `Added "${wordOfTheDay.word}" to your vocabulary!`);
+      message.success(currentLang === 'vi' ? `Đã lưu "${dailyWord.word}" vào kho từ vựng!` : `Added "${dailyWord.word}" to your vocabulary!`);
       setIsWotdSaved(true);
       setTotalWords(prev => prev + 1);
     } catch {
@@ -402,80 +393,80 @@ export const Dashboard: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <Button
               type="primary"
-              size="large"
-              icon={<Layers size={16} />}
+              icon={<Layers size={14} />}
               onClick={() => navigate('/flashcards')}
               style={{
-                height: 42,
-                borderRadius: 12,
-                fontWeight: 700,
+                height: 34,
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 600,
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: 6,
+                gap: 5,
                 background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
                 border: 'none',
-                boxShadow: '0 4px 16px rgba(79, 70, 229, 0.35)',
-                padding: '0 20px'
+                boxShadow: '0 2px 8px rgba(79, 70, 229, 0.25)',
+                padding: '0 14px'
               }}
             >
               {currentLang === 'vi' ? 'Ôn Flashcards' : 'Review Cards'}
             </Button>
 
             <Button
-              size="large"
               onClick={() => navigate('/quizzes')}
-              icon={<CheckSquare size={16} color="#10b981" />}
+              icon={<CheckSquare size={14} color="#10b981" />}
               style={{
-                height: 42,
-                borderRadius: 12,
-                fontWeight: 700,
+                height: 34,
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 600,
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: 6,
+                gap: 5,
                 background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#ffffff',
                 borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#cbd5e1',
                 color: isDark ? '#f8fafc' : '#0f172a',
-                padding: '0 18px'
+                padding: '0 14px'
               }}
             >
               {currentLang === 'vi' ? 'Làm Quiz' : 'Start Quiz'}
             </Button>
 
             <Button
-              size="large"
               onClick={() => navigate('/pomodoro')}
-              icon={<Timer size={16} color="#f43f5e" />}
+              icon={<Timer size={14} color="#f43f5e" />}
               style={{
-                height: 42,
-                borderRadius: 12,
-                fontWeight: 700,
+                height: 34,
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 600,
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: 6,
+                gap: 5,
                 background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#ffffff',
                 borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#cbd5e1',
                 color: isDark ? '#f8fafc' : '#0f172a',
-                padding: '0 18px'
+                padding: '0 14px'
               }}
             >
               Pomodoro
             </Button>
 
             <Button
-              size="large"
               onClick={() => navigate('/vocabulary')}
-              icon={<PlusCircle size={16} color="#8b5cf6" />}
+              icon={<PlusCircle size={14} color="#8b5cf6" />}
               style={{
-                height: 42,
-                borderRadius: 12,
-                fontWeight: 700,
+                height: 34,
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 600,
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: 6,
+                gap: 5,
                 background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#ffffff',
                 borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#cbd5e1',
                 color: isDark ? '#f8fafc' : '#0f172a',
-                padding: '0 18px'
+                padding: '0 14px'
               }}
             >
               {currentLang === 'vi' ? 'Kho từ vựng' : 'Vocabulary'}
@@ -522,101 +513,141 @@ export const Dashboard: React.FC = () => {
                   <Star size={12} fill="#ffffff" /> {currentLang === 'vi' ? 'TỪ VỰNG TINH HOA HÔM NAY' : 'WORD OF THE DAY'}
                 </span>
 
-                <Tag color="purple" style={{ borderRadius: 10, fontWeight: 700, margin: 0 }}>
-                  {wordOfTheDay.level}
-                </Tag>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {isFromAI && (
+                    <Tag color="cyan" style={{ borderRadius: 10, fontWeight: 700, margin: 0, fontSize: 11 }}>
+                      ⚡ AI Generated
+                    </Tag>
+                  )}
+                  {dailyWord && (
+                    <Tag color="purple" style={{ borderRadius: 10, fontWeight: 700, margin: 0 }}>
+                      {dailyWord.level}
+                    </Tag>
+                  )}
+                </div>
               </div>
 
-              {/* Word & Phonetic */}
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
-                <h2 
-                  className="font-lexical"
-                  style={{ 
-                    fontSize: 32, 
-                    fontWeight: 800, 
-                    margin: 0, 
-                    color: isDark ? '#f8fafc' : '#0f172a',
-                    letterSpacing: '-0.3px'
-                  }}
-                >
-                  {wordOfTheDay.word}
-                </h2>
-                <span style={{ fontSize: 15, color: '#8b5cf6', fontFamily: 'monospace', fontWeight: 600 }}>
-                  {wordOfTheDay.phonetic}
-                </span>
-                <span style={{ fontSize: 13, fontStyle: 'italic', color: isDark ? '#94a3b8' : '#64748b' }}>
-                  ({wordOfTheDay.partOfSpeech})
-                </span>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<Volume2 size={16} color="#8b5cf6" />}
-                  onClick={() => playAudio(wordOfTheDay.word)}
-                  style={{
-                    background: isDark ? 'rgba(139, 92, 246, 0.15)' : 'rgba(139, 92, 246, 0.08)',
-                    borderRadius: 8,
-                    height: 28,
-                    width: 28,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                  title="Nghe phát âm"
-                />
-              </div>
+              {isDailyWordLoading && !dailyWord ? (
+                <div style={{ padding: '36px 0', textAlign: 'center' }}>
+                  <Spin tip={currentLang === 'vi' ? 'Đang chuẩn bị từ vựng thông minh...' : 'Loading daily word...'} />
+                </div>
+              ) : dailyWord ? (
+                <>
+                  {/* Word & Phonetic */}
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+                    <h2 
+                      className="font-lexical"
+                      style={{ 
+                        fontSize: 32, 
+                        fontWeight: 800, 
+                        margin: 0, 
+                        color: isDark ? '#f8fafc' : '#0f172a',
+                        letterSpacing: '-0.3px'
+                      }}
+                    >
+                      {dailyWord.word}
+                    </h2>
+                    <span style={{ fontSize: 15, color: '#8b5cf6', fontFamily: 'monospace', fontWeight: 600 }}>
+                      {dailyWord.phonetic}
+                    </span>
+                    <span style={{ fontSize: 13, fontStyle: 'italic', color: isDark ? '#94a3b8' : '#64748b' }}>
+                      ({dailyWord.partOfSpeech})
+                    </span>
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<Volume2 size={16} color="#8b5cf6" />}
+                      onClick={() => playAudio(dailyWord.word)}
+                      style={{
+                        background: isDark ? 'rgba(139, 92, 246, 0.15)' : 'rgba(139, 92, 246, 0.08)',
+                        borderRadius: 8,
+                        height: 28,
+                        width: 28,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                      title="Nghe phát âm"
+                    />
+                  </div>
 
-              {/* Vietnamese Meaning & Definition */}
-              <div style={{ fontSize: 16, fontWeight: 700, color: isDark ? '#a5b4fc' : '#4338ca', marginBottom: 6 }}>
-                {wordOfTheDay.vietnamese}
-              </div>
-              <p style={{ fontSize: 13.5, color: isDark ? '#94a3b8' : '#475569', margin: '0 0 14px 0', lineHeight: 1.5 }}>
-                {wordOfTheDay.definition}
-              </p>
+                  {/* Vietnamese Meaning & Definition */}
+                  <div style={{ fontSize: 16, fontWeight: 700, color: isDark ? '#a5b4fc' : '#4338ca', marginBottom: 6 }}>
+                    {dailyWord.vietnamese}
+                  </div>
+                  <p style={{ fontSize: 13.5, color: isDark ? '#94a3b8' : '#475569', margin: '0 0 14px 0', lineHeight: 1.5 }}>
+                    {dailyWord.definition}
+                  </p>
 
-              {/* Example Quote */}
-              <div 
-                className="font-lexical"
-                style={{ 
-                  fontSize: 14, 
-                  fontStyle: 'italic', 
-                  color: isDark ? '#e2e8f0' : '#1e293b', 
-                  padding: '10px 14px', 
-                  background: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(139, 92, 246, 0.04)', 
-                  borderRadius: 10,
-                  borderLeft: '3px solid #8b5cf6',
-                  lineHeight: 1.5
-                }}
-              >
-                "{wordOfTheDay.example}"
-              </div>
+                  {/* Example Quote */}
+                  <div 
+                    className="font-lexical"
+                    style={{ 
+                      fontSize: 14, 
+                      fontStyle: 'italic', 
+                      color: isDark ? '#e2e8f0' : '#1e293b', 
+                      padding: '10px 14px', 
+                      background: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(139, 92, 246, 0.04)', 
+                      borderRadius: 10,
+                      borderLeft: '3px solid #8b5cf6',
+                      lineHeight: 1.5
+                    }}
+                  >
+                    "{dailyWord.example}"
+                  </div>
+                </>
+              ) : null}
             </div>
 
             {/* Action Bar */}
-            <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
-              {isWotdSaved ? (
-                <Button 
-                  icon={<Check size={14} color="#16a34a" />} 
-                  disabled
-                  style={{ borderRadius: 10, fontWeight: 600, color: '#16a34a', borderColor: '#86efac' }}
-                >
-                  {currentLang === 'vi' ? 'Đã lưu trong kho từ ✓' : 'Saved in Vocabulary ✓'}
-                </Button>
-              ) : (
-                <Button
-                  type="primary"
-                  icon={<BookmarkPlus size={15} />}
-                  onClick={handleSaveWordOfTheDay}
-                  style={{
-                    borderRadius: 10,
-                    fontWeight: 700,
-                    background: '#8b5cf6',
-                    border: 'none',
-                    boxShadow: '0 4px 12px rgba(139, 92, 246, 0.3)'
-                  }}
-                >
-                  {currentLang === 'vi' ? '+ Lưu từ này vào kho' : '+ Add to Vocabulary'}
-                </Button>
-              )}
+            <div style={{ marginTop: 18, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Button
+                type="text"
+                size="small"
+                icon={<Sparkles size={14} color="#8b5cf6" />}
+                loading={isDailyWordLoading}
+                onClick={() => loadDailyWord(true)}
+                style={{
+                  borderRadius: 8,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: isDark ? '#c4b5fd' : '#7c3aed',
+                  background: isDark ? 'rgba(139, 92, 246, 0.12)' : 'rgba(139, 92, 246, 0.08)',
+                }}
+              >
+                {currentLang === 'vi' ? 'Đổi từ khác (AI)' : 'Regenerate (AI)'}
+              </Button>
+
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {isWotdSaved ? (
+                  <Button 
+                    icon={<Check size={14} color="#16a34a" />} 
+                    disabled
+                    style={{ borderRadius: 8, height: 32, padding: '0 12px', fontSize: 13, fontWeight: 600, color: '#16a34a', borderColor: '#86efac' }}
+                  >
+                    {currentLang === 'vi' ? 'Đã lưu trong kho từ ✓' : 'Saved in Vocabulary ✓'}
+                  </Button>
+                ) : (
+                  <Button
+                    type="primary"
+                    icon={<BookmarkPlus size={14} />}
+                    onClick={handleSaveWordOfTheDay}
+                    disabled={isDailyWordLoading || !dailyWord}
+                    style={{
+                      borderRadius: 8,
+                      height: 32,
+                      padding: '0 12px',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      background: '#8b5cf6',
+                      border: 'none',
+                      boxShadow: '0 2px 6px rgba(139, 92, 246, 0.25)'
+                    }}
+                  >
+                    {currentLang === 'vi' ? '+ Lưu từ này vào kho' : '+ Add to Vocabulary'}
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </Col>
@@ -933,84 +964,244 @@ export const Dashboard: React.FC = () => {
         </Col>
       </Row>
 
-      {/* 🎯 Review Goal Progress Bento Card */}
-      <div 
-        className="bento-card" 
-        style={{ padding: '24px 28px' }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ 
-              width: 34, 
-              height: 34, 
-              borderRadius: 8, 
-              background: 'rgba(79, 70, 229, 0.1)', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center',
-              color: '#4f46e5' 
-            }}>
-              <Award size={18} />
-            </div>
+      {/* 🎯 Row: Daily Review Goal & Today's Tasks Planner */}
+      <Row gutter={[16, 16]}>
+        {/* Left: Review Goal Progress */}
+        <Col xs={24} lg={12}>
+          <div 
+            className="bento-card" 
+            style={{ padding: '24px 28px', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
+          >
             <div>
-              <span style={{ fontSize: 16, fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', display: 'block' }}>
-                {currentLang === 'vi' ? 'Mục tiêu ôn tập hàng ngày' : "Daily Review Goal"}
-              </span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ 
+                    width: 34, 
+                    height: 34, 
+                    borderRadius: 8, 
+                    background: 'rgba(79, 70, 229, 0.1)', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    color: '#4f46e5' 
+                  }}>
+                    <Award size={18} />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 16, fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', display: 'block' }}>
+                      {currentLang === 'vi' ? 'Mục tiêu ôn tập hàng ngày' : "Daily Review Goal"}
+                    </span>
+                    <span style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
+                      {todayReviews >= dailyGoal
+                        ? (currentLang === 'vi' ? '🎉 Hoàn thành xuất sắc mục tiêu hôm nay!' : '🎉 Daily goal completed!')
+                        : (currentLang === 'vi' ? `Còn ${dailyGoal - todayReviews} lượt ôn để đạt chỉ tiêu` : `${dailyGoal - todayReviews} reviews left to reach daily goal`)}
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{ fontSize: 18, fontWeight: 800, color: goalPercent >= 100 ? '#10b981' : '#4f46e5' }}>
+                    {todayReviews} <span style={{ fontSize: 14, color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600 }}>/ {dailyGoal}</span>
+                  </span>
+                  <span style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b', display: 'block' }}>
+                    ({goalPercent}%)
+                  </span>
+                </div>
+              </div>
+
+              <Progress 
+                percent={goalPercent} 
+                strokeColor={{
+                  '0%': '#4f46e5',
+                  '100%': '#10b981',
+                }}
+                strokeWidth={12}
+                style={{ margin: '18px 0 14px 0' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
               <span style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
-                {todayReviews >= dailyGoal
-                  ? (currentLang === 'vi' ? '🎉 Hoàn thành xuất sắc mục tiêu hôm nay!' : '🎉 Daily goal completed!')
-                  : (currentLang === 'vi' ? `Còn ${dailyGoal - todayReviews} lượt ôn để đạt chỉ tiêu` : `${dailyGoal - todayReviews} reviews left to reach daily goal`)}
+                💡 Mỗi lượt flashcard hay quiz đều tích lũy vào tiến độ.
               </span>
+
+              <div style={{ display: 'flex', gap: 6 }}>
+                {[25, 50, 75, 100].map(milestone => (
+                  <span
+                    key={milestone}
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: 6,
+                      background: goalPercent >= milestone 
+                        ? (isDark ? 'rgba(16, 185, 129, 0.2)' : 'rgba(16, 185, 129, 0.12)')
+                        : (isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)'),
+                      color: goalPercent >= milestone ? '#10b981' : (isDark ? '#64748b' : '#94a3b8'),
+                      border: goalPercent >= milestone ? '1px solid rgba(16, 185, 129, 0.3)' : 'none'
+                    }}
+                  >
+                    {milestone}% {milestone === 100 ? '💎' : ''}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
+        </Col>
 
-          <div style={{ textAlign: 'right' }}>
-            <span style={{ fontSize: 18, fontWeight: 800, color: goalPercent >= 100 ? '#10b981' : '#4f46e5' }}>
-              {todayReviews} <span style={{ fontSize: 14, color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600 }}>/ {dailyGoal}</span>
-            </span>
-            <span style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b', display: 'block' }}>
-              ({goalPercent}%)
-            </span>
+        {/* Right: Today's Tasks & Study Plan */}
+        <Col xs={24} lg={12}>
+          <div 
+            className="bento-card" 
+            style={{ 
+              padding: '22px 24px', 
+              height: '100%', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              justifyContent: 'space-between',
+              border: overdueCount > 0 
+                ? (isDark ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(239, 68, 68, 0.25)') 
+                : undefined
+            }}
+          >
+            <div>
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ 
+                    width: 34, 
+                    height: 34, 
+                    borderRadius: 8, 
+                    background: 'rgba(2, 132, 199, 0.12)', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    color: '#0284c7' 
+                  }}>
+                    <CheckSquare size={18} />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 16, fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', display: 'block' }}>
+                      {translate('todoTodayTasksWidget', currentLang)}
+                    </span>
+                    <span style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
+                      {todayTodos.length > 0
+                        ? (todayCompletedCount === todayTodos.length 
+                            ? translate('todoAllDoneToday', currentLang)
+                            : translate('todoTasksLeftToday', currentLang, { count: todayTodos.length - todayCompletedCount }))
+                        : (currentLang === 'vi' ? 'Chưa có task nào cho hôm nay' : 'No tasks scheduled for today')}
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {overdueCount > 0 && (
+                    <Tag color="error" style={{ borderRadius: 6, fontWeight: 700, margin: 0, fontSize: 11 }}>
+                      {overdueCount} {translate('todoFilterOverdue', currentLang).toLowerCase()}
+                    </Tag>
+                  )}
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => navigate('/todos')}
+                    style={{ fontWeight: 600, color: '#0284c7', padding: '0 4px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 2 }}
+                  >
+                    {translate('todoViewAll', currentLang)} <ArrowRight size={12} />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              {todayTodos.length > 0 && (
+                <Progress 
+                  percent={Math.round((todayCompletedCount / todayTodos.length) * 100)} 
+                  strokeColor="#10b981" 
+                  size="small" 
+                  style={{ marginBottom: 14 }}
+                />
+              )}
+
+              {/* List of Tasks (up to 4 items) */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 180, overflowY: 'auto', marginBottom: 12 }}>
+                {todayTodos.length === 0 ? (
+                  <div style={{ padding: '16px 0', textAlign: 'center', color: isDark ? '#64748b' : '#94a3b8', fontSize: 12 }}>
+                    {currentLang === 'vi' ? '🎉 Bạn không có công việc tồn đọng hôm nay!' : '🎉 No pending tasks for today!'}
+                  </div>
+                ) : (
+                  todayTodos.slice(0, 4).map(task => {
+                    const isDone = task.status === 'completed';
+                    const isTaskOverdue = !isDone && isDateOverdue(task.dueDate);
+                    return (
+                      <div
+                        key={task.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 10,
+                          padding: '8px 12px',
+                          borderRadius: 8,
+                          background: isDone 
+                            ? (isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.02)') 
+                            : (isTaskOverdue ? (isDark ? 'rgba(239, 68, 68, 0.1)' : '#fef2f2') : (isDark ? 'rgba(255, 255, 255, 0.04)' : '#f8fafc')),
+                          border: isTaskOverdue ? '1px solid rgba(239, 68, 68, 0.25)' : (isDark ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid #f1f5f9'),
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                          <button
+                            type="button"
+                            onClick={() => handleDashboardToggle(task.id)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: isDone ? '#10b981' : (isDark ? '#64748b' : '#94a3b8') }}
+                          >
+                            {isDone ? <CheckCircle2 size={17} color="#10b981" /> : <Square size={17} />}
+                          </button>
+                          <span style={{
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: isDone ? (isDark ? '#64748b' : '#94a3b8') : (isDark ? '#f8fafc' : '#1e293b'),
+                            textDecoration: isDone ? 'line-through' : 'none',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }}>
+                            {task.title}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                          {task.priority === 'high' && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', padding: '1px 6px', borderRadius: 4 }}>
+                              🔥
+                            </span>
+                          )}
+                          {isTaskOverdue && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#ef4444' }}>
+                              {translate('todoFilterOverdue', currentLang)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Quick add input at bottom of card */}
+            <form onSubmit={handleDashboardQuickAdd} style={{ marginTop: 8 }}>
+              <Input
+                value={dashboardQuickTask}
+                onChange={(e) => setDashboardQuickTask(e.target.value)}
+                placeholder={currentLang === 'vi' ? 'Thêm nhanh việc hôm nay...' : 'Quick add task for today...'}
+                prefix={<Plus size={14} color="#0284c7" />}
+                size="small"
+                disabled={quickTaskLoading}
+                style={{ borderRadius: 8, height: 32 }}
+              />
+            </form>
           </div>
-        </div>
-
-        <Progress 
-          percent={goalPercent} 
-          strokeColor={{
-            '0%': '#4f46e5',
-            '100%': '#10b981',
-          }}
-          strokeWidth={12}
-          style={{ margin: '18px 0 14px 0' }}
-        />
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-          <span style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
-            💡 Mỗi lượt ôn tập flashcard hay trả lời quiz đều tích lũy vào tiến độ.
-          </span>
-
-          <div style={{ display: 'flex', gap: 6 }}>
-            {[25, 50, 75, 100].map(milestone => (
-              <span
-                key={milestone}
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: '2px 8px',
-                  borderRadius: 6,
-                  background: goalPercent >= milestone 
-                    ? (isDark ? 'rgba(16, 185, 129, 0.2)' : 'rgba(16, 185, 129, 0.12)')
-                    : (isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)'),
-                  color: goalPercent >= milestone ? '#10b981' : (isDark ? '#64748b' : '#94a3b8'),
-                  border: goalPercent >= milestone ? '1px solid rgba(16, 185, 129, 0.3)' : 'none'
-                }}
-              >
-                {milestone}% {milestone === 100 ? '💎' : ''}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
+        </Col>
+      </Row>
 
       {/* 📈 Mastery Status Bento Section */}
       <div>

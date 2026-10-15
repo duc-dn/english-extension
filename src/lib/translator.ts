@@ -1278,5 +1278,67 @@ Hãy trả về DUY NHẤT một đối tượng JSON hợp lệ (không kèm b�
   };
 }
 
+export interface AIDailyWord {
+  word: string;
+  phonetic: string;
+  partOfSpeech: string;
+  vietnamese: string;
+  definition: string;
+  example: string;
+  level: string;
+}
+
+/**
+ * Sinh từ vựng trong ngày (Word of the Day) thông minh từ AI
+ */
+export async function generateDailyWordWithAI(
+  avoidWords: string[] = [],
+  customSettings?: Partial<Settings>
+): Promise<AIDailyWord | null> {
+  const currentSettings = await getSettings();
+  const settings = { ...currentSettings, ...customSettings };
+  if (!settings.ai_provider || settings.ai_provider === 'none') {
+    return null;
+  }
+
+  const avoidClause = avoidWords.length > 0
+    ? `\nLưu ý KHÔNG chọn các từ sau vì đã học gần đây: ${avoidWords.slice(0, 30).join(', ')}.`
+    : '';
+
+  const prompt = `Bạn là chuyên gia ngôn ngữ tiếng Anh. Hãy chọn ra 1 từ vựng tiếng Anh trình độ B2, C1 hoặc C2 thật hay, sâu sắc, giàu biểu cảm hoặc có giá trị ứng dụng cao.${avoidClause}
+Hãy trả về DUY NHẤT một đối tượng JSON hợp lệ theo cấu trúc sau (không kèm markdown \`\`\`json hay văn bản phụ):
+{
+  "word": "Từ vựng tiếng Anh (viết hoa chữ cái đầu)",
+  "phonetic": "/phiên âm IPA chuẩn/",
+  "partOfSpeech": "loại từ (noun / adjective / verb / adverb)",
+  "vietnamese": "nghĩa tiếng Việt súc tích, tinh tế và dễ hiểu",
+  "definition": "định nghĩa tiếng Anh cô đọng chuẩn Oxford/Cambridge",
+  "example": "một câu ví dụ tiếng Anh truyền cảm hứng hoặc rất tự nhiên sử dụng từ này",
+  "level": "Cấp độ CEFR (ví dụ: B2 Upper-Int, C1 Advanced, hoặc C2 Proficiency)"
+}`;
+
+  try {
+    const raw = await callAI([{ role: 'user', content: prompt }], true, settings);
+    const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+    if (parsed && parsed.word && parsed.vietnamese) {
+      return {
+        word: parsed.word.trim(),
+        phonetic: parsed.phonetic || '',
+        partOfSpeech: parsed.partOfSpeech || 'noun',
+        vietnamese: parsed.vietnamese || '',
+        definition: parsed.definition || '',
+        example: parsed.example || '',
+        level: parsed.level || 'C1 Advanced',
+      };
+    }
+    return null;
+  } catch (err) {
+    console.warn('AI Daily Word generation failed:', err);
+    return null;
+  }
+}
+
+
 
 

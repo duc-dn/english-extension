@@ -17,12 +17,14 @@ export async function syncToGithub() {
   const words = await db.words.toArray();
   const grammar_notes = await db.grammar_notes.toArray();
   const review_history = await db.review_history.toArray();
+  const todos = await db.todos.toArray();
 
   const backupData = {
     export_date: new Date().toISOString(),
     words,
     grammar_notes,
     review_history,
+    todos,
   };
 
   const contentBase64 = btoa(unescape(encodeURIComponent(JSON.stringify(backupData, null, 2))));
@@ -107,6 +109,7 @@ export async function syncFromGithub() {
   const words = backupData.words || [];
   const grammar_notes = backupData.grammar_notes || [];
   const review_history = backupData.review_history || [];
+  const todos = backupData.todos || [];
 
   const processedWords = words.map((w: any) => ({
     ...w,
@@ -125,7 +128,7 @@ export async function syncFromGithub() {
     reviewed_at: h.reviewed_at ? new Date(h.reviewed_at) : new Date(),
   }));
 
-  await db.transaction('rw', [db.words, db.grammar_notes, db.review_history], async () => {
+  await db.transaction('rw', [db.words, db.grammar_notes, db.review_history, db.todos], async () => {
     if (processedWords.length > 0) {
       await db.words.bulkPut(processedWords);
     }
@@ -134,6 +137,9 @@ export async function syncFromGithub() {
     }
     if (processedHistory.length > 0) {
       await db.review_history.bulkPut(processedHistory);
+    }
+    if (todos.length > 0) {
+      await db.todos.bulkPut(todos);
     }
   });
 

@@ -38,10 +38,38 @@ export interface ReviewHistory {
   reviewed_at: Date;
 }
 
+export interface TodoItem {
+  id: string;
+  title: string;
+  description?: string;
+  status: 'pending' | 'completed';
+  priority: 'low' | 'medium' | 'high';
+  dueDate?: string;
+  reminderAt?: string;
+  reminderNotified?: boolean;
+  tags: string[];
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface DailyWord {
+  date: string; // YYYY-MM-DD
+  word: string;
+  phonetic: string;
+  partOfSpeech: string;
+  vietnamese: string;
+  definition: string;
+  example: string;
+  level: string;
+  createdAt: string;
+}
+
 export class EnglishExtensionDB extends Dexie {
   words!: Table<Word, string>;
   grammar_notes!: Table<GrammarNote, string>;
   review_history!: Table<ReviewHistory, string>;
+  todos!: Table<TodoItem, string>;
+  daily_words!: Table<DailyWord, string>;
 
   constructor() {
     super('EnglishExtensionDB');
@@ -59,6 +87,19 @@ export class EnglishExtensionDB extends Dexie {
       words: 'id, word, *tags, created_at, next_review, wrong_count, status',
       review_history: 'id, word_id, reviewed_at, score',
       grammar_notes: 'id, title, created_at'
+    });
+    this.version(4).stores({
+      words: 'id, word, *tags, created_at, next_review, wrong_count, status',
+      review_history: 'id, word_id, reviewed_at, score',
+      grammar_notes: 'id, title, created_at',
+      todos: 'id, title, status, priority, dueDate, reminderAt, createdAt, *tags'
+    });
+    this.version(5).stores({
+      words: 'id, word, *tags, created_at, next_review, wrong_count, status',
+      review_history: 'id, word_id, reviewed_at, score',
+      grammar_notes: 'id, title, created_at',
+      todos: 'id, title, status, priority, dueDate, reminderAt, createdAt, *tags',
+      daily_words: 'date, word, level, createdAt'
     });
   }
 }
@@ -315,7 +356,7 @@ export async function deleteGrammarNote(id: string) {
   triggerAutoSync();
 }
 
-async function triggerAutoSync() {
+export async function triggerAutoSync() {
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
     const settings = await getSettings();
     if (!settings.github_repo || !settings.github_token) return;

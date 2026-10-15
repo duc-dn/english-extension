@@ -4,7 +4,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { 
   Search, BookOpen, Layers, BarChart2, Settings, 
   Volume2, Check, Trash2, Globe, Moon, Sun, 
-  Sparkles, XCircle, ChevronRight, Plus, MessageSquare, ExternalLink
+  Sparkles, XCircle, ChevronRight, Plus, MessageSquare, ExternalLink,
+  CheckSquare, Square, CheckCircle2, Calendar
 } from 'lucide-react';
 import { fetchBasicMeaning, translateSentence, translateSentenceWithAI, summarizeSentence, explainWord, sendChatMessage, extractGrammarNote } from '../lib/translator';
 import type { ChatHistoryItem } from '../lib/translator';
@@ -12,11 +13,29 @@ import { Input, Button, Tag, Progress, message, ConfigProvider, Modal, theme as 
 import { saveSettings, useSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
 import { PomodoroTimerWidget } from './PomodoroTimerWidget';
-import { TodayDateWidget } from './TodayDateWidget';
+import { 
+  addTodo, 
+  deleteTodo, 
+  toggleTodoStatus, 
+  isDateToday, 
+  isDateOverdue, 
+  formatRelativeDueDate, 
+  getTodayDateString 
+} from '../lib/todo';
+import { playTaskCompleteChime } from '../lib/audio';
 
 export const CompactView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'lookup' | 'vocab' | 'flashcards' | 'stats' | 'settings' | 'aichat'>('lookup');
+  const [activeTab, setActiveTab] = useState<'lookup' | 'vocab' | 'flashcards' | 'stats' | 'settings' | 'aichat' | 'todos'>('lookup');
   const [isPopup, setIsPopup] = useState(false);
+  
+  // Todo states in CompactView
+  const allTodos = useLiveQuery(() => db.todos.reverse().sortBy('createdAt')) || [];
+  const pendingTodos = allTodos.filter(t => t.status === 'pending');
+  const pendingTodosCount = pendingTodos.length;
+  const overdueTodosCount = pendingTodos.filter(t => isDateOverdue(t.dueDate)).length;
+  const [todoQuickText, setTodoQuickText] = useState('');
+  const [todoPriority, setTodoPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [todoFilter, setTodoFilter] = useState<'all' | 'pending' | 'completed' | 'today'>('pending');
   
   // Lookup states
   const [manualQuery, setManualQuery] = useState('');
@@ -588,6 +607,202 @@ export const CompactView: React.FC = () => {
   const knownWords = words.filter(w => w.status === 'mastered' || w.review_level >= 4).length;
   const toReview = words.filter(w => w.next_review && new Date(w.next_review) <= new Date() && w.status !== 'mastered').length;
 
+  const renderTodosTab = () => {
+    const displayTodos = allTodos.filter(t => {
+      if (todoFilter === 'pending') return t.status === 'pending';
+      if (todoFilter === 'completed') return t.status === 'completed';
+      if (todoFilter === 'today') return t.status === 'pending' && isDateToday(t.dueDate);
+      return true;
+    });
+
+    const handleAddCompactTodo = async (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
+      if (!todoQuickText.trim()) return;
+      try {
+        await addTodo({
+          title: todoQuickText,
+          priority: todoPriority,
+          dueDate: getTodayDateString(),
+          tags: ['General'],
+        });
+        setTodoQuickText('');
+        message.success(translate('todoAddSuccess', currentLang));
+      } catch {
+        message.error('Lỗi khi thêm nhiệm vụ');
+      }
+    };
+
+    const handleToggleCompactTodo = async (id: string) => {
+      try {
+        const updated = await toggleTodoStatus(id);
+        if (updated?.status === 'completed') {
+          playTaskCompleteChime();
+          message.success(translate('todoCompletedSuccess', currentLang));
+        }
+      } catch {
+        message.error('Lỗi khi cập nhật trạng thái');
+      }
+    };
+
+    const handleDeleteCompactTodo = async (id: string) => {
+      try {
+        await deleteTodo(id);
+        message.success(translate('todoDeleteSuccess', currentLang));
+      } catch {
+        message.error('Lỗi khi xóa');
+      }
+    };
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeIn 0.2s' }}>
+        {/* Quick add bar */}
+        <form onSubmit={handleAddCompactTodo} style={{ display: 'flex', gap: 6 }}>
+          <Input
+            value={todoQuickText}
+            onChange={(e) => setTodoQuickText(e.target.value)}
+            placeholder={translate('todoQuickAddPlaceholder', currentLang)}
+            style={{ borderRadius: 8, height: 34, fontSize: 13 }}
+            prefix={<CheckSquare size={14} color="#0284c7" />}
+          />
+          <Select
+            value={todoPriority}
+            onChange={setTodoPriority}
+            size="small"
+            style={{ width: 85, height: 34 }}
+            options={[
+              { value: 'high', label: `🔥 ${translate('todoPriorityHigh', currentLang).slice(0, 4)}` },
+              { value: 'medium', label: `⚡ ${translate('todoPriorityMedium', currentLang).slice(0, 4)}` },
+              { value: 'low', label: `🌱 ${translate('todoPriorityLow', currentLang).slice(0, 4)}` },
+            ]}
+          />
+          <Button
+            type="primary"
+            htmlType="submit"
+            icon={<Plus size={14} />}
+            style={{ height: 34, borderRadius: 8, background: '#0284c7', padding: '0 10px' }}
+          />
+        </form>
+
+        {/* Filter Pills */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {[
+              { id: 'pending', label: translate('todoFilterPending', currentLang), count: pendingTodosCount },
+              { id: 'today', label: translate('todoFilterToday', currentLang) },
+              { id: 'all', label: translate('todoFilterAll', currentLang) },
+              { id: 'completed', label: translate('todoFilterCompleted', currentLang) },
+            ].map(f => {
+              const isActive = todoFilter === f.id;
+              return (
+                <button
+                  key={f.id}
+                  onClick={() => setTodoFilter(f.id as any)}
+                  style={{
+                    background: isActive ? (isDark ? 'rgba(56, 189, 248, 0.2)' : 'rgba(2, 132, 199, 0.12)') : 'transparent',
+                    color: isActive ? '#0284c7' : colors.textMuted,
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '3px 8px',
+                    fontSize: 11,
+                    fontWeight: isActive ? 700 : 500,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {f.label} {f.count !== undefined && f.count > 0 ? `(${f.count})` : ''}
+                </button>
+              );
+            })}
+          </div>
+
+          <Button
+            type="link"
+            size="small"
+            onClick={() => openFullPageTab('todos')}
+            icon={<ExternalLink size={11} />}
+            style={{ padding: 0, fontSize: 11, color: '#0284c7', display: 'flex', alignItems: 'center', gap: 3 }}
+          >
+            {translate('todoViewAll', currentLang)}
+          </Button>
+        </div>
+
+        {/* Task items list */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '380px', overflowY: 'auto' }}>
+          {displayTodos.length === 0 ? (
+            <div style={{ padding: '30px 0', textAlign: 'center', color: colors.textMuted, fontSize: 12 }}>
+              {translate('todoNoTasksTitle', currentLang)}
+            </div>
+          ) : (
+            displayTodos.map(t => {
+              const isDone = t.status === 'completed';
+              const isOverdue = !isDone && isDateOverdue(t.dueDate);
+              return (
+                <div
+                  key={t.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    padding: '8px 10px',
+                    borderRadius: 8,
+                    background: isDone 
+                      ? (isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.02)') 
+                      : (isOverdue ? (isDark ? 'rgba(239, 68, 68, 0.1)' : '#fef2f2') : colors.bgContainer),
+                    border: isOverdue 
+                      ? '1px solid rgba(239, 68, 68, 0.3)' 
+                      : ('1px solid ' + colors.border),
+                    opacity: isDone ? 0.6 : 1
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleCompactTodo(t.id)}
+                      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', color: isDone ? '#10b981' : colors.textMuted }}
+                    >
+                      {isDone ? <CheckCircle2 size={16} color="#10b981" /> : <Square size={16} />}
+                    </button>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        color: isDone ? colors.textMuted : colors.textMain,
+                        textDecoration: isDone ? 'line-through' : 'none',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {t.title}
+                      </div>
+                      {t.dueDate && (
+                        <div style={{ fontSize: 10.5, color: isOverdue ? '#ef4444' : colors.textMuted, marginTop: 1, display: 'flex', alignItems: 'center', gap: 3 }}>
+                          <Calendar size={10} /> {formatRelativeDueDate(t.dueDate, currentLang)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {t.priority === 'high' && (
+                      <span style={{ fontSize: 10, color: '#ef4444', fontWeight: 700 }}>🔥</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCompactTodo(t.id)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: colors.textMuted }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'lookup':
@@ -595,34 +810,6 @@ export const CompactView: React.FC = () => {
           // Paragraph Selection Mode (Side Panel style)
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '4px 0', animation: 'fadeIn 0.2s' }}>
-              {!isAiConfigured && (
-                <div style={{ 
-                  background: 'rgba(245, 158, 11, 0.1)', 
-                  border: '1px solid rgba(245, 158, 11, 0.2)', 
-                  borderRadius: 10, 
-                  padding: '10px 14px', 
-                  fontSize: '12px', 
-                  color: '#fbbf24', 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center',
-                  marginBottom: 4,
-                  animation: 'fadeIn 0.2s'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, paddingRight: 8 }}>
-                    <Sparkles size={14} color="#fbbf24" style={{ flexShrink: 0 }} />
-                    <span style={{ fontWeight: 500, lineHeight: 1.4 }}>{translate('aiNotConfigured', currentLang)}</span>
-                  </div>
-                  <Button 
-                    type="link" 
-                    size="small" 
-                    onClick={() => openFullPageTab('settings')}
-                    style={{ padding: 0, height: 'auto', color: '#60a5fa', fontSize: '12px', fontWeight: 600 }}
-                  >
-                    {translate('setupNow', currentLang)}
-                  </Button>
-                </div>
-              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '11px', fontWeight: 800, color: '#38bdf8', letterSpacing: '0.5px' }}>{translate('selectedText', currentLang)}</span>
                 <button onClick={clearSelection} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: colors.textMuted, fontSize: '11px', fontWeight: 600 }}>
@@ -811,58 +998,31 @@ export const CompactView: React.FC = () => {
 
         // Manual Lookup Mode
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeIn 0.2s' }}>
-            {!isAiConfigured && (
-              <div style={{ 
-                background: 'rgba(245, 158, 11, 0.08)', 
-                border: '1px solid rgba(245, 158, 11, 0.2)', 
-                borderRadius: 8, 
-                padding: '6px 10px', 
-                fontSize: '11px', 
-                color: '#fbbf24', 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                animation: 'fadeIn 0.2s'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, paddingRight: 6 }}>
-                  <Sparkles size={12} color="#fbbf24" style={{ flexShrink: 0 }} />
-                  <span style={{ fontWeight: 500, lineHeight: 1.3 }}>{translate('aiNotConfigured', currentLang)}</span>
-                </div>
-                <Button 
-                  type="link" 
-                  size="small" 
-                  onClick={() => openFullPageTab('settings')}
-                  style={{ padding: 0, height: 'auto', color: '#60a5fa', fontSize: '11px', fontWeight: 600, flexShrink: 0 }}
-                >
-                  {translate('setupNow', currentLang)}
-                </Button>
-              </div>
-            )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, animation: 'fadeIn 0.2s' }}>
             <div style={{ display: 'flex', gap: 6 }}>
               <Input 
                 placeholder={translate('searchWords', currentLang)} 
                 value={manualQuery} 
                 onChange={e => setManualQuery(e.target.value)}
                 onPressEnter={handleManualSearch}
-                style={{ borderRadius: 8, height: 38, background: colors.bgContainer, border: '1px solid ' + colors.border, color: colors.textMain }} 
+                style={{ borderRadius: 8, height: 34, background: colors.bgContainer, border: '1px solid ' + colors.border, color: colors.textMain, fontSize: 13 }} 
               />
               <Button 
                 type="primary" 
                 onClick={handleManualSearch} 
                 loading={manualLoading}
-                style={{ height: 38, background: '#4f46e5', border: 'none', borderRadius: 8, color: '#ffffff', fontWeight: 600 }}
+                style={{ height: 34, background: '#4f46e5', border: 'none', borderRadius: 8, color: '#ffffff', fontWeight: 600, fontSize: 13, padding: '0 14px' }}
               >
                 {translate('lookupBtn', currentLang)}
               </Button>
             </div>
 
             {manualResult ? (
-              <div style={{ background: colors.bgContainer, border: '1px solid ' + colors.border, borderRadius: 14, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, animation: 'fadeIn 0.3s' }}>
+              <div style={{ background: colors.bgContainer, border: '1px solid ' + colors.border, borderRadius: 12, padding: 12, display: 'flex', flexDirection: 'column', gap: 8, animation: 'fadeIn 0.3s' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                   <span style={{ 
                     fontFamily: '"Lora", serif', 
-                    fontSize: '21px', 
+                    fontSize: '20px', 
                     fontWeight: 600, 
                     color: colors.textMain, 
                     letterSpacing: '-0.3px' 
@@ -880,28 +1040,20 @@ export const CompactView: React.FC = () => {
                 </div>
 
                 {manualResult.phonetic && (
-                  <span style={{ color: isDark ? '#34d399' : '#059669', fontSize: '13px', fontStyle: 'italic', fontWeight: 500 }}>
+                  <span style={{ color: isDark ? '#34d399' : '#059669', fontSize: '12px', fontStyle: 'italic', fontWeight: 500 }}>
                     {manualResult.phonetic}
                   </span>
                 )}
 
-                <div style={{ borderTop: '1px solid ' + colors.borderLight, paddingTop: 8 }}>
-                  <span style={{ fontSize: '10.5px', fontWeight: 700, color: colors.textMuted, letterSpacing: '0.2px' }}>
-                    {translate('meaningSec', currentLang)}
-                  </span>
-                  <div style={{ fontSize: '14px', fontWeight: 500, color: isDark ? '#f8fafc' : '#1e293b', marginTop: 2 }}>
+                <div style={{ borderTop: '1px solid ' + colors.borderLight, paddingTop: 6 }}>
+                  <div style={{ fontSize: '13.5px', fontWeight: 600, color: isDark ? '#f8fafc' : '#1e293b' }}>
                     {manualResult.vietnameseMeaning || 'Chưa tìm thấy bản dịch'}
                   </div>
                 </div>
 
                 {manualResult.meanings?.[0]?.definitions?.[0]?.definition && (
-                  <div>
-                    <span style={{ fontSize: '10.5px', fontWeight: 700, color: colors.textMuted, letterSpacing: '0.2px' }}>
-                      {translate('definitionSec', currentLang)}
-                    </span>
-                    <div style={{ fontSize: '12px', color: colors.textMain, marginTop: 2, lineHeight: '1.45' }}>
-                      {manualResult.meanings[0].definitions[0].definition}
-                    </div>
+                  <div style={{ fontSize: '12px', color: colors.textMuted, lineHeight: '1.4' }}>
+                    {manualResult.meanings[0].definitions[0].definition}
                   </div>
                 )}
 
@@ -911,37 +1063,33 @@ export const CompactView: React.FC = () => {
                     onClick={saveManualWord}
                     disabled={isManualSaved}
                     icon={isManualSaved ? <Check size={14} /> : <Plus size={14} />}
-                    style={{ flex: 1, height: 38, borderRadius: 8, background: isManualSaved ? '#059669' : '#4f46e5', border: 'none', fontWeight: 600, color: '#ffffff' }}
+                    style={{ flex: 1, height: 34, borderRadius: 8, background: isManualSaved ? '#059669' : '#4f46e5', border: 'none', fontWeight: 600, fontSize: 13, color: '#ffffff' }}
                   >
                     {isManualSaved 
                       ? (manualResult.word.split(/\s+/).filter(Boolean).length > 1 ? translate('savedPhraseBtn', currentLang) : translate('savedWordBtn', currentLang)) 
                       : (manualResult.word.split(/\s+/).filter(Boolean).length > 1 ? translate('savePhraseBtn', currentLang) : translate('saveWordBtn', currentLang))}
                   </Button>
                   
-                  <Button 
-                    type="default" 
-                    onClick={handleWordAiSupport}
-                    loading={wordExplanationLoading}
-                    disabled={!isAiConfigured}
-                    icon={<Sparkles size={14} color={isAiConfigured ? "#60a5fa" : (isDark ? '#475569' : '#94a3b8')} />}
-                    style={{ 
-                      flex: 1, 
-                      height: 38, 
-                      borderRadius: 8, 
-                      borderColor: !isAiConfigured 
-                        ? (isDark ? '#25283b' : '#cbd5e1') 
-                        : colors.border, 
-                      background: !isAiConfigured 
-                        ? (isDark ? '#1e2235' : '#f1f5f9') 
-                        : colors.bgLight, 
-                      color: !isAiConfigured 
-                        ? (isDark ? '#475569' : '#94a3b8') 
-                        : '#60a5fa', 
-                      fontWeight: 600 
-                    }}
-                  >
-                    {translate('aiSupportBtn', currentLang)}
-                  </Button>
+                  {isAiConfigured && (
+                    <Button 
+                      type="default" 
+                      onClick={handleWordAiSupport}
+                      loading={wordExplanationLoading}
+                      icon={<Sparkles size={14} color="#60a5fa" />}
+                      style={{ 
+                        flex: 1, 
+                        height: 34, 
+                        borderRadius: 8, 
+                        borderColor: colors.border, 
+                        background: colors.bgLight, 
+                        color: '#60a5fa', 
+                        fontWeight: 600,
+                        fontSize: 13
+                      }}
+                    >
+                      {translate('aiSupportBtn', currentLang)}
+                    </Button>
+                  )}
                 </div>
 
                 {wordExplanation && (
@@ -1586,6 +1734,9 @@ export const CompactView: React.FC = () => {
           </div>
         );
 
+      case 'todos':
+        return renderTodosTab();
+
       default:
         return null;
     }
@@ -1671,18 +1822,12 @@ export const CompactView: React.FC = () => {
                 }} 
               />
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontWeight: 800, fontSize: '13px', color: colors.textMain, letterSpacing: '-0.2px', lineHeight: 1.2 }}>
-                English Space
-              </span>
-              <span style={{ fontSize: '10px', color: colors.textMuted, fontWeight: 500 }}>
-                Assistant
-              </span>
-            </div>
+            <span style={{ fontWeight: 800, fontSize: '13px', color: colors.textMain, letterSpacing: '-0.2px' }}>
+              English Space
+            </span>
           </div>
 
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-            <TodayDateWidget compact={true} showTime={false} />
             <PomodoroTimerWidget compact={true} />
             
             <Button
@@ -1757,6 +1902,12 @@ export const CompactView: React.FC = () => {
           {[
             { id: 'lookup', label: translate('lookUpTab', currentLang), icon: <Search size={13} /> },
             { id: 'aichat', label: translate('aiChatTab', currentLang), icon: <MessageSquare size={13} /> },
+            { 
+              id: 'todos', 
+              label: translate('todosTab', currentLang), 
+              icon: <CheckSquare size={13} />, 
+              badge: pendingTodosCount > 0 ? pendingTodosCount : undefined 
+            },
             { id: 'vocab', label: translate('vocabTab', currentLang), icon: <BookOpen size={13} /> },
             { id: 'flashcards', label: translate('flashcardsTab', currentLang), icon: <Layers size={13} /> },
             { id: 'stats', label: translate('statsTab', currentLang), icon: <BarChart2 size={13} /> },
@@ -1783,10 +1934,29 @@ export const CompactView: React.FC = () => {
                   flexDirection: 'column',
                   alignItems: 'center',
                   gap: 3,
-                  transition: 'all 0.18s ease'
+                  transition: 'all 0.18s ease',
+                  position: 'relative'
                 }}
               >
-                {t.icon}
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {t.icon}
+                  {t.badge !== undefined && (
+                    <span style={{
+                      position: 'absolute',
+                      top: -6,
+                      right: -10,
+                      background: overdueTodosCount > 0 ? '#ef4444' : '#0284c7',
+                      color: '#ffffff',
+                      fontSize: '9px',
+                      fontWeight: 800,
+                      borderRadius: 10,
+                      padding: '0 4px',
+                      lineHeight: '13px'
+                    }}>
+                      {t.badge}
+                    </span>
+                  )}
+                </div>
                 <span style={{ fontSize: '10px', lineHeight: 1.1 }}>{t.label}</span>
               </button>
             );
