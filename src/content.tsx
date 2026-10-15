@@ -948,16 +948,27 @@ const ContentApp: React.FC = () => {
   );
 };
 
-// Inject root into document
-const rootElement = document.createElement('div');
-rootElement.id = 'eng-ext-root';
-document.body.appendChild(rootElement);
+// Inject root safely into document
+function initRoot() {
+  if (!document.body) return;
+  if (document.getElementById('eng-ext-root')) return;
 
-const root = createRoot(rootElement);
-root.render(
-  <>
-    <ContentApp />
-    <PassiveHighlightManager />
-    <WritingAssistantOverlay />
-  </>
-);
+  const rootElement = document.createElement('div');
+  rootElement.id = 'eng-ext-root';
+  document.body.appendChild(rootElement);
+
+  const root = createRoot(rootElement);
+  root.render(
+    <>
+      <ContentApp />
+      <PassiveHighlightManager />
+      <WritingAssistantOverlay />
+    </>
+  );
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initRoot, { once: true });
+} else {
+  initRoot();
+}

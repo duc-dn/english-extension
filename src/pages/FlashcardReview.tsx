@@ -37,6 +37,13 @@ export const FlashcardReview: React.FC = () => {
   const settings = useSettings();
   const currentLang = settings.language || 'vi';
 
+  const isDark = settings.theme === 'dark' || (
+    settings.theme === 'system' && 
+    typeof window !== 'undefined' && 
+    window.matchMedia && 
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
+
   useEffect(() => {
     voiceServiceRef.current = new VoiceRecognitionService();
   }, []);
@@ -210,10 +217,10 @@ export const FlashcardReview: React.FC = () => {
             </div>
 
             <div>
-              <Title level={3} style={{ fontWeight: 800, color: '#1e293b', margin: '0 0 8px 0' }}>
+              <Title level={3} style={{ fontWeight: 800, color: isDark ? '#f8fafc' : '#1e293b', margin: '0 0 8px 0' }}>
                 {translate('noWordsToReview', currentLang)}
               </Title>
-              <Text style={{ display: 'block', fontSize: 14, color: '#64748b', lineHeight: 1.6 }}>
+              <Text style={{ display: 'block', fontSize: 14, color: isDark ? '#94a3b8' : '#64748b', lineHeight: 1.6 }}>
                 {selectedTag === 'all'
                   ? translate('noWordsToReview', currentLang)
                   : translate('noWordsToReviewTag', currentLang, { tag: selectedTag })}
@@ -344,7 +351,7 @@ export const FlashcardReview: React.FC = () => {
               type="primary" 
               size="large" 
               onClick={fetchQueue} 
-              style={{ borderRadius: 24, padding: '0 24px', height: 48, fontWeight: 600, background: 'linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%)', border: 'none' }}
+              style={{ borderRadius: 24, padding: '0 24px', height: 48, fontWeight: 600, background: '#4f46e5', border: 'none', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)' }}
             >
               {translate('reviewThisTopic', currentLang)}
             </Button>
@@ -367,7 +374,7 @@ export const FlashcardReview: React.FC = () => {
           </div>
           <Progress 
             percent={Math.round((currentIndex / reviewQueue.length) * 100)} 
-            strokeColor="linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%)"
+            strokeColor="#4f46e5"
             showInfo={false} 
             status="active"
             style={{ margin: 0 }}
@@ -385,15 +392,15 @@ export const FlashcardReview: React.FC = () => {
         >
           <div className="flip-card-inner">
             {/* Front of Card */}
-            <div className="flip-card-front premium-flashcard" style={{ padding: '24px' }}>
+            <div className="flip-card-front premium-flashcard" style={{ padding: '28px 24px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center' }}>
-                <Title level={1} style={{ fontSize: '2.8rem', margin: 0, fontWeight: 700, letterSpacing: '-0.5px', color: '#1e293b' }}>
+                <Title level={1} style={{ fontSize: '2.8rem', margin: 0, fontWeight: 700, letterSpacing: '-0.5px', color: isDark ? '#f8fafc' : '#0f172a', fontFamily: '"Lora", Georgia, serif' }}>
                   {currentWord.word}
                 </Title>
                 <Button 
                   type="text" 
                   shape="circle" 
-                  icon={<Volume2 size={24} color="#6366f1" />} 
+                  icon={<Volume2 size={24} color="#4f46e5" />} 
                   onClick={(e) => { e.stopPropagation(); playAudio(currentWord.word); }} 
                   title="Phát âm chuẩn"
                 />
@@ -409,14 +416,14 @@ export const FlashcardReview: React.FC = () => {
               </div>
 
               {currentWord.phonetic && (
-                <Text style={{ fontSize: '1.3rem', color: '#64748b', marginTop: 6, display: 'block' }}>
+                <Text style={{ fontSize: '1.3rem', color: isDark ? '#cbd5e1' : '#64748b', marginTop: 6, display: 'block' }}>
                   {currentWord.phonetic}
                 </Text>
               )}
 
               {/* Speaking result banner */}
               {isListening && (
-                <div style={{ marginTop: 12, padding: '6px 14px', borderRadius: 20, background: '#fee2e2', color: '#dc2626', fontSize: 13, fontWeight: 600 }}>
+                <div style={{ marginTop: 12, padding: '6px 14px', borderRadius: 20, background: isDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2', color: isDark ? '#fca5a5' : '#dc2626', fontSize: 13, fontWeight: 600 }}>
                   🎙️ {currentLang === 'vi' ? 'Đang lắng nghe... Hãy phát âm từ này!' : 'Listening... Say this word!'}
                 </div>
               )}
@@ -426,14 +433,16 @@ export const FlashcardReview: React.FC = () => {
                   marginTop: 12,
                   padding: '8px 16px',
                   borderRadius: 12,
-                  background: speakingResult.matched ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                  background: speakingResult.matched 
+                    ? (isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)')
+                    : (isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)'),
                   border: `1px solid ${speakingResult.matched ? '#10b981' : '#ef4444'}`,
                   textAlign: 'center'
                 }}>
-                  <div style={{ fontWeight: 700, color: speakingResult.matched ? '#059669' : '#dc2626', fontSize: 14 }}>
+                  <div style={{ fontWeight: 700, color: speakingResult.matched ? '#10b981' : '#ef4444', fontSize: 14 }}>
                     🎯 {speakingResult.score}% • {speakingResult.feedback}
                   </div>
-                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                  <div style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b', marginTop: 2 }}>
                     {currentLang === 'vi' ? 'Bạn đã nói:' : 'You said:'} <em>"{speakingResult.transcript}"</em>
                   </div>
                 </div>
@@ -452,9 +461,9 @@ export const FlashcardReview: React.FC = () => {
                 <div style={{
                   marginTop: 14,
                   fontSize: 13,
-                  color: '#64748b',
+                  color: isDark ? '#cbd5e1' : '#64748b',
                   fontStyle: 'italic',
-                  background: 'rgba(0,0,0,0.02)',
+                  background: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0,0,0,0.02)',
                   padding: '8px 12px',
                   borderRadius: 8,
                   maxWidth: '90%',
@@ -464,20 +473,20 @@ export const FlashcardReview: React.FC = () => {
                 </div>
               )}
 
-              <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', color: '#94a3b8', gap: 8 }}>
-                <Text style={{ fontSize: 13 }}>{translate('clickToFlip', currentLang)}</Text>
+              <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', color: isDark ? '#94a3b8' : '#64748b', gap: 8 }}>
+                <Text style={{ fontSize: 13, color: isDark ? '#94a3b8' : '#64748b' }}>{translate('clickToFlip', currentLang)}</Text>
                 <ArrowRight size={16} />
               </div>
             </div>
             
             {/* Back of Card */}
-            <div className="flip-card-back premium-flashcard" style={{ padding: '24px', boxSizing: 'border-box' }}>
-              <Title level={2} style={{ color: '#8b5cf6', marginTop: 0, marginBottom: 8, fontSize: '2.2rem', textAlign: 'center' }}>
+            <div className="flip-card-back premium-flashcard" style={{ padding: '28px 24px', boxSizing: 'border-box' }}>
+              <Title level={2} style={{ color: isDark ? '#818cf8' : '#4f46e5', marginTop: 0, marginBottom: 8, fontSize: '2.2rem', textAlign: 'center', fontWeight: 700 }}>
                 {currentWord.meaning || 'Chưa dịch'}
               </Title>
 
               {currentWord.description && (
-                <div style={{ fontSize: '1.1rem', color: '#64748b', marginBottom: 12, textAlign: 'center', whiteSpace: 'pre-wrap', maxHeight: '80px', overflowY: 'auto' }}>
+                <div style={{ fontSize: '1.1rem', color: isDark ? '#cbd5e1' : '#64748b', marginBottom: 12, textAlign: 'center', whiteSpace: 'pre-wrap', maxHeight: '80px', overflowY: 'auto' }}>
                   {currentWord.description}
                 </div>
               )}
@@ -486,9 +495,9 @@ export const FlashcardReview: React.FC = () => {
               {(currentWord.contextSentence || currentWord.example) && (
                 <div style={{
                   fontSize: '13px',
-                  color: '#334155',
-                  background: 'rgba(99, 102, 241, 0.08)',
-                  border: '1px solid rgba(99, 102, 241, 0.2)',
+                  color: isDark ? '#f8fafc' : '#334155',
+                  background: isDark ? 'rgba(79, 70, 229, 0.12)' : 'rgba(79, 70, 229, 0.06)',
+                  border: isDark ? '1px solid rgba(79, 70, 229, 0.25)' : '1px solid rgba(79, 70, 229, 0.15)',
                   borderRadius: 10,
                   padding: '10px 14px',
                   margin: '10px 0',
@@ -496,16 +505,16 @@ export const FlashcardReview: React.FC = () => {
                   lineHeight: 1.5,
                   width: '100%'
                 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: isDark ? '#a5b4fc' : '#4f46e5', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
                     <BookOpen size={13} /> {currentLang === 'vi' ? 'Ngữ cảnh gốc khi đọc web:' : 'Original Context:'}
                   </div>
-                  <div style={{ fontStyle: 'italic', color: '#1e293b' }}>
+                  <div style={{ fontStyle: 'italic', color: isDark ? '#f8fafc' : '#0f172a', fontFamily: '"Lora", Georgia, serif', fontSize: '14px', lineHeight: 1.6 }}>
                     "{currentWord.contextSentence || currentWord.example}"
                   </div>
                   {currentWord.sourceUrl && (
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <div style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b', marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
                       <ExternalLink size={11} />
-                      <a href={currentWord.sourceUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'underline' }}>
+                      <a href={currentWord.sourceUrl} target="_blank" rel="noreferrer" style={{ color: isDark ? '#60a5fa' : '#2563eb', textDecoration: 'underline' }}>
                         {currentWord.sourceTitle || currentWord.sourceUrl}
                       </a>
                     </div>
@@ -587,18 +596,17 @@ export const FlashcardReview: React.FC = () => {
           bordered={false}
         >
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
-            {/* Glowing Icon */}
+            {/* Focused Icon */}
             <div style={{ 
-              width: 80, 
-              height: 80, 
+              width: 72, 
+              height: 72, 
               borderRadius: '50%', 
-              background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(217, 70, 239, 0.12) 100%)', 
+              background: 'rgba(79, 70, 229, 0.1)', 
               display: 'flex', 
               alignItems: 'center', 
               justifyContent: 'center',
-              boxShadow: 'inset 0 0 12px rgba(139, 92, 246, 0.05)'
             }}>
-              <Layers size={36} color="#8b5cf6" />
+              <Layers size={32} color="#4f46e5" />
             </div>
 
             <div>
@@ -643,10 +651,10 @@ export const FlashcardReview: React.FC = () => {
                 width: '100%',
                 borderRadius: 20, 
                 fontWeight: 600, 
-                background: 'linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%)', 
+                background: '#4f46e5', 
                 border: 'none', 
                 height: 48,
-                boxShadow: '0 8px 20px rgba(139, 92, 246, 0.2)',
+                boxShadow: '0 4px 14px rgba(79, 70, 229, 0.25)',
                 color: '#ffffff'
               } : {
                 width: '100%',

@@ -114,18 +114,58 @@ function App() {
       theme={{
         algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
-          colorPrimary: '#8b5cf6',
-          fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif",
-          borderRadius: 8,
-          colorBgContainer: isDark ? '#1e293b' : 'rgba(255, 255, 255, 0.8)',
+          colorPrimary: '#0284c7',
+          colorPrimaryHover: '#0ea5e9',
+          colorSuccess: '#10b981',
+          colorWarning: '#f59e0b',
+          colorError: '#f43f5e',
+          colorInfo: '#0ea5e9',
+          fontFamily: "'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+          borderRadius: 10,
+          borderRadiusLG: 16,
+          colorBgContainer: isDark ? '#111827' : '#ffffff',
+          colorBgBase: isDark ? '#0b0f19' : '#f8fafc',
+          colorText: isDark ? '#f8fafc' : '#0f172a',
+          colorTextSecondary: isDark ? '#94a3b8' : '#475569',
+          colorBorder: isDark ? 'rgba(255, 255, 255, 0.1)' : '#e0f2fe',
+          colorBorderSecondary: isDark ? 'rgba(255, 255, 255, 0.06)' : '#f0f9ff',
         },
         components: {
           Card: {
-            borderRadiusLG: 16,
+            borderRadiusLG: 18,
+            colorBorderSecondary: isDark ? 'rgba(255, 255, 255, 0.08)' : '#e0f2fe',
           },
           Button: {
             controlHeight: 38,
+            borderRadius: 10,
+            colorPrimary: '#0284c7',
+            fontWeight: 600,
+          },
+          Input: {
+            borderRadius: 10,
+            controlHeight: 38,
+          },
+          Select: {
+            borderRadius: 10,
+            controlHeight: 38,
+          },
+          Table: {
+            headerBg: 'transparent',
+            headerColor: isDark ? '#94a3b8' : '#64748b',
+            borderRadiusLG: 14,
+          },
+          Modal: {
+            borderRadiusLG: 20,
+          },
+          Tag: {
             borderRadius: 8,
+          },
+          Menu: {
+            itemBorderRadius: 10,
+            itemSelectedBg: isDark ? 'rgba(14, 165, 233, 0.18)' : 'rgba(14, 165, 233, 0.08)',
+            itemSelectedColor: isDark ? '#38bdf8' : '#0284c7',
+            itemHoverBg: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(14, 165, 233, 0.04)',
+            itemHoverColor: isDark ? '#f8fafc' : '#0f172a',
           }
         }
       }}

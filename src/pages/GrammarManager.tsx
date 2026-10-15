@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Table, Button, Tag, Space, Modal, Form, Input, message, Card, Typography, Tooltip, Spin, Popconfirm } from 'antd';
+import { Table, Button, Tag, Space, Modal, Form, Input, message, Typography, Tooltip, Spin, Popconfirm } from 'antd';
 import { 
   Plus, 
   Trash2, 
@@ -47,6 +47,13 @@ export const GrammarManager: React.FC = () => {
 
   const settings = useSettings();
   const currentLang = settings.language || 'vi';
+
+  const isDark = settings.theme === 'dark' || (
+    settings.theme === 'system' && 
+    typeof window !== 'undefined' && 
+    window.matchMedia && 
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
 
   // Live queries from Dexie
   const notes = useLiveQuery(() => db.grammar_notes.toArray()) ?? EMPTY_NOTES;
@@ -257,7 +264,7 @@ export const GrammarManager: React.FC = () => {
       width: '24%',
       render: (text: string) => (
         <div>
-          <strong style={{ color: '#1e293b', fontSize: 15 }}>{text}</strong>
+          <strong style={{ color: isDark ? '#f8fafc' : '#1e293b', fontSize: 15 }}>{text}</strong>
         </div>
       ),
     },
@@ -267,7 +274,7 @@ export const GrammarManager: React.FC = () => {
       key: 'content',
       width: '36%',
       render: (text: string) => (
-        <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: '#334155', maxHeight: 150, overflowY: 'auto' }}>
+        <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: isDark ? '#cbd5e1' : '#334155', maxHeight: 150, overflowY: 'auto' }}>
           {text}
         </div>
       )
@@ -279,7 +286,7 @@ export const GrammarManager: React.FC = () => {
       width: '24%',
       render: (text: string) => (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-          <div style={{ fontStyle: 'italic', color: '#64748b', fontSize: 13, whiteSpace: 'pre-wrap', flex: 1 }}>
+          <div style={{ fontStyle: 'italic', color: isDark ? '#94a3b8' : '#64748b', fontSize: 13, whiteSpace: 'pre-wrap', flex: 1 }}>
             {text || '—'}
           </div>
           {text && (
@@ -345,21 +352,21 @@ export const GrammarManager: React.FC = () => {
       {/* Page Title & Add Button */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
-          <h2 style={{ margin: 0, fontWeight: 800, fontSize: '24px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h2 style={{ margin: 0, fontWeight: 800, fontSize: '24px', display: 'flex', alignItems: 'center', gap: 10, color: isDark ? '#f8fafc' : '#0f172a' }}>
             <BookOpen size={24} color="#f43f5e" />
             {translate('grammarTitle', currentLang)}
             <Tag color="#f43f5e" style={{ borderRadius: 12, fontWeight: 700, marginLeft: 4 }}>
               {notes.length} {currentLang === 'vi' ? 'cấu trúc' : 'rules'}
             </Tag>
           </h2>
-          <p style={{ margin: '6px 0 0 0', color: '#64748b', fontSize: 14 }}>
+          <p style={{ margin: '6px 0 0 0', color: isDark ? '#94a3b8' : '#64748b', fontSize: 14 }}>
             {translate('grammarDesc', currentLang)}
           </p>
         </div>
         <Button 
           type="primary" 
           size="large" 
-          style={{ borderRadius: 10, fontWeight: 600, background: 'linear-gradient(135deg, #f43f5e 0%, #e11d48 100%)', boxShadow: '0 4px 12px rgba(244, 63, 94, 0.25)' }} 
+          style={{ borderRadius: 10, fontWeight: 600, background: '#4f46e5', border: 'none', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)' }} 
           icon={<Plus size={18} />} 
           onClick={() => setIsModalOpen(true)}
         >
@@ -368,21 +375,22 @@ export const GrammarManager: React.FC = () => {
       </div>
 
       {/* AI Grammar Search Hero Box */}
-      <Card
-        className="glass-card"
+      <div
+        className="bento-card"
         style={{
           marginBottom: 24,
-          borderRadius: 16,
-          border: '1px solid rgba(244, 63, 94, 0.2)',
-          background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(254, 242, 242, 0.6) 100%)',
-          boxShadow: '0 8px 24px rgba(244, 63, 94, 0.06)'
+          padding: 22,
+          border: isDark ? '1px solid rgba(99, 102, 241, 0.25)' : '1px solid rgba(79, 70, 229, 0.15)',
+          background: isDark 
+            ? 'linear-gradient(135deg, rgba(79, 70, 229, 0.14) 0%, rgba(139, 92, 246, 0.08) 100%)' 
+            : 'linear-gradient(135deg, rgba(79, 70, 229, 0.04) 0%, rgba(255, 255, 255, 0.95) 100%)',
+          boxShadow: isDark ? '0 4px 20px rgba(0, 0, 0, 0.3)' : '0 4px 18px rgba(15, 23, 42, 0.05)'
         }}
-        bodyStyle={{ padding: 20 }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ 
-              background: 'linear-gradient(135deg, #f43f5e 0%, #d946ef 100%)', 
+              background: '#4f46e5', 
               color: '#fff', 
               padding: '4px 8px', 
               borderRadius: 8, 
@@ -392,9 +400,9 @@ export const GrammarManager: React.FC = () => {
               fontSize: 12, 
               fontWeight: 700 
             }}>
-              <Sparkles size={14} /> AI GRAMMAR SEARCH
+              <Sparkles size={14} /> {currentLang === 'vi' ? 'Tra cứu AI' : 'AI Assistant'}
             </span>
-            <span style={{ fontWeight: 700, fontSize: 16, color: '#1e293b' }}>
+            <span style={{ fontWeight: 700, fontSize: 16, color: isDark ? '#f8fafc' : '#1e293b' }}>
               {translate('aiGrammarSearchTitle', currentLang)}
             </span>
           </div>
@@ -430,9 +438,9 @@ export const GrammarManager: React.FC = () => {
             style={{
               borderRadius: 10,
               fontWeight: 700,
-              background: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)',
+              background: '#4f46e5',
               border: 'none',
-              boxShadow: '0 4px 12px rgba(139, 92, 246, 0.3)',
+              boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)',
               padding: '0 20px'
             }}
           >
@@ -442,7 +450,7 @@ export const GrammarManager: React.FC = () => {
 
         {/* Suggested Topic Pills */}
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginRight: 2 }}>
+          <span style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600, marginRight: 2 }}>
             <Lightbulb size={13} style={{ display: 'inline', marginRight: 4, verticalAlign: 'text-bottom' }} />
             {currentLang === 'vi' ? 'Chủ đề gợi ý:' : 'Suggested topics:'}
           </span>
@@ -458,9 +466,9 @@ export const GrammarManager: React.FC = () => {
                 borderRadius: 12,
                 padding: '2px 10px',
                 fontSize: 12,
-                background: 'rgba(255, 255, 255, 0.8)',
-                border: '1px solid rgba(139, 92, 246, 0.2)',
-                color: '#6366f1',
+                background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'rgba(255, 255, 255, 0.8)',
+                border: isDark ? '1px solid rgba(139, 92, 246, 0.35)' : '1px solid rgba(139, 92, 246, 0.2)',
+                color: isDark ? '#c7d2fe' : '#6366f1',
                 transition: 'all 0.2s ease',
               }}
               className="hover:border-purple-500"
@@ -472,7 +480,7 @@ export const GrammarManager: React.FC = () => {
 
         {/* AI Searching Loading State */}
         {isSearchingAI && (
-          <div style={{ marginTop: 20, padding: 24, textAlign: 'center', background: 'rgba(255, 255, 255, 0.7)', borderRadius: 12, border: '1px dashed rgba(139, 92, 246, 0.3)' }}>
+          <div style={{ marginTop: 20, padding: 24, textAlign: 'center', background: isDark ? 'rgba(17, 24, 39, 0.7)' : 'rgba(255, 255, 255, 0.7)', borderRadius: 12, border: isDark ? '1px dashed rgba(139, 92, 246, 0.4)' : '1px dashed rgba(139, 92, 246, 0.3)' }}>
             <Spin size="large" />
             <div style={{ marginTop: 12, fontWeight: 600, color: '#6366f1', fontSize: 14 }}>
               {translate('aiGrammarAnalyzing', currentLang)}
@@ -489,18 +497,18 @@ export const GrammarManager: React.FC = () => {
             style={{ 
               marginTop: 20, 
               padding: 20, 
-              background: '#ffffff', 
+              background: isDark ? '#111827' : '#ffffff', 
               borderRadius: 14, 
-              border: '1px solid rgba(139, 92, 246, 0.25)', 
-              boxShadow: '0 8px 24px rgba(139, 92, 246, 0.08)',
+              border: isDark ? '1px solid rgba(139, 92, 246, 0.35)' : '1px solid rgba(139, 92, 246, 0.25)', 
+              boxShadow: isDark ? '0 8px 24px rgba(0, 0, 0, 0.4)' : '0 8px 24px rgba(139, 92, 246, 0.08)',
               animation: 'fadeIn 0.3s ease'
             }}
           >
             {/* Header of Result */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10, marginBottom: 16, borderBottom: '1px solid #f1f5f9', paddingBottom: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10, marginBottom: 16, borderBottom: isDark ? '1px solid #1f2937' : '1px solid #f1f5f9', paddingBottom: 14 }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <h3 style={{ margin: 0, fontWeight: 800, fontSize: 18, color: '#0f172a' }}>
+                  <h3 style={{ margin: 0, fontWeight: 800, fontSize: 18, color: isDark ? '#f8fafc' : '#0f172a' }}>
                     {aiResult.title}
                   </h3>
                   {(aiResult.tags || []).map(tag => (
@@ -529,10 +537,10 @@ export const GrammarManager: React.FC = () => {
                     onClick={() => handleSaveAIResult(aiResult)}
                     style={{
                       borderRadius: 8,
-                      fontWeight: 700,
-                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      fontWeight: 600,
+                      background: '#059669',
                       border: 'none',
-                      boxShadow: '0 4px 10px rgba(16, 185, 129, 0.25)'
+                      boxShadow: '0 2px 8px rgba(5, 150, 105, 0.25)'
                     }}
                   >
                     {translate('aiGrammarSaveBtn', currentLang)}
@@ -559,8 +567,8 @@ export const GrammarManager: React.FC = () => {
             {/* Formula Block */}
             {aiResult.formula && (
               <div style={{ 
-                background: 'linear-gradient(135deg, rgba(238, 242, 255, 0.8) 0%, rgba(243, 232, 255, 0.8) 100%)', 
-                border: '1px solid rgba(99, 102, 241, 0.2)', 
+                background: isDark ? '#1e293b' : '#f8fafc', 
+                border: isDark ? '1px solid #334155' : '1px solid #e2e8f0', 
                 borderRadius: 10, 
                 padding: '12px 16px', 
                 marginBottom: 14,
@@ -569,10 +577,10 @@ export const GrammarManager: React.FC = () => {
                 alignItems: 'center'
               }}>
                 <div>
-                  <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#4f46e5', display: 'block', marginBottom: 2 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.3px', color: '#818cf8', display: 'block', marginBottom: 2 }}>
                     {translate('aiGrammarFormulaLabel', currentLang)}
                   </span>
-                  <code style={{ fontSize: 14, fontWeight: 700, color: '#1e1b4b', fontFamily: 'monospace' }}>
+                  <code style={{ fontSize: 14, fontWeight: 700, color: isDark ? '#e0e7ff' : '#1e1b4b', fontFamily: 'monospace' }}>
                     {aiResult.formula}
                   </code>
                 </div>
@@ -589,10 +597,10 @@ export const GrammarManager: React.FC = () => {
 
             {/* Explanation Block */}
             <div style={{ marginBottom: 16 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#334155', display: 'block', marginBottom: 4 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? '#cbd5e1' : '#334155', display: 'block', marginBottom: 4 }}>
                 {translate('aiGrammarExplainLabel', currentLang)}
               </span>
-              <p style={{ margin: 0, fontSize: 14, lineHeight: '1.6', color: '#1e293b', whiteSpace: 'pre-wrap' }}>
+              <p style={{ margin: 0, fontSize: 14, lineHeight: '1.6', color: isDark ? '#f1f5f9' : '#1e293b', whiteSpace: 'pre-wrap' }}>
                 {aiResult.explanation}
               </p>
             </div>
@@ -600,7 +608,7 @@ export const GrammarManager: React.FC = () => {
             {/* Examples Block */}
             {aiResult.examples && aiResult.examples.length > 0 && (
               <div style={{ marginBottom: 16 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#334155', display: 'block', marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? '#cbd5e1' : '#334155', display: 'block', marginBottom: 6 }}>
                   {translate('aiGrammarExamplesLabel', currentLang)}
                 </span>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -608,8 +616,8 @@ export const GrammarManager: React.FC = () => {
                     <div 
                       key={idx}
                       style={{ 
-                        background: '#f8fafc', 
-                        padding: '8px 12px', 
+                        background: isDark ? '#1e293b' : '#f8fafc', 
+                        padding: '10px 14px', 
                         borderRadius: 8, 
                         borderLeft: '3px solid #8b5cf6',
                         display: 'flex',
@@ -618,11 +626,11 @@ export const GrammarManager: React.FC = () => {
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: 600, color: '#0f172a', fontSize: 13 }}>
+                        <div style={{ fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a', fontSize: 13 }}>
                           {ex.english}
                         </div>
                         {ex.vietnamese && (
-                          <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>
+                          <div style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: 12, marginTop: 2 }}>
                             {ex.vietnamese}
                           </div>
                         )}
@@ -643,12 +651,12 @@ export const GrammarManager: React.FC = () => {
             {/* Notes / Special Variations Block */}
             {aiResult.notes && (
               <div style={{ 
-                background: '#fffbeb', 
-                border: '1px solid #fef3c7', 
+                background: isDark ? 'rgba(245, 158, 11, 0.12)' : '#fffbeb', 
+                border: isDark ? '1px solid rgba(245, 158, 11, 0.25)' : '1px solid #fef3c7', 
                 borderRadius: 8, 
                 padding: '10px 14px', 
                 fontSize: 13, 
-                color: '#92400e',
+                color: isDark ? '#fde68a' : '#92400e',
                 lineHeight: '1.5'
               }}>
                 <span style={{ fontWeight: 700, display: 'block', marginBottom: 2 }}>
@@ -659,10 +667,10 @@ export const GrammarManager: React.FC = () => {
             )}
           </div>
         )}
-      </Card>
+      </div>
 
       {/* Filter and Table of Saved Grammar */}
-      <div className="glass-card" style={{ padding: 16, borderRadius: 16 }}>
+      <div className="bento-card" style={{ padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 260 }}>
             <Input
@@ -703,13 +711,74 @@ export const GrammarManager: React.FC = () => {
           </div>
         </div>
 
-        <Table 
-          dataSource={filteredNotes} 
-          columns={columns} 
-          rowKey="id" 
-          pagination={{ pageSize: 8, showSizeChanger: false }}
-          style={{ background: 'transparent' }}
-        />
+        {filteredNotes.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '36px 16px' }}>
+            <div style={{
+              width: 56,
+              height: 56,
+              borderRadius: 16,
+              background: isDark ? 'rgba(244, 63, 94, 0.15)' : 'rgba(244, 63, 94, 0.08)',
+              color: '#f43f5e',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 16px auto',
+              boxShadow: '0 4px 12px rgba(244, 63, 94, 0.15)'
+            }}>
+              <BookOpen size={26} />
+            </div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', marginBottom: 6 }}>
+              {currentLang === 'vi' ? 'Chưa có cấu trúc ngữ pháp nào được lưu' : 'No grammar rules saved yet'}
+            </div>
+            <p style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: 13.5, maxWidth: 460, margin: '0 auto 24px auto', lineHeight: 1.5 }}>
+              {currentLang === 'vi' 
+                ? 'Sử dụng ô Tra cứu AI ở trên hoặc chọn nhanh một chủ đề cốt lõi dưới đây để AI trích xuất công thức và lưu vào sổ tay:'
+                : 'Use the AI search box above or choose a foundational topic below to auto-extract rules and examples:'}
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12, maxWidth: 880, margin: '0 auto' }}>
+              {[
+                { title: 'Câu điều kiện loại 3 (Third Conditional)', desc: 'If + S + had PII, S + would have PII', tag: 'Conditionals' },
+                { title: 'Đảo ngữ No sooner / Hardly', desc: 'No sooner had + S + PII than S + Ved', tag: 'Inversion' },
+                { title: 'Mệnh đề quan hệ rút gọn', desc: 'V-ing / PII / To-V reduction', tag: 'Clauses' },
+                { title: 'Câu chẻ Cleft Sentences', desc: 'It is/was + X + that/who...', tag: 'Emphasis' }
+              ].map(item => (
+                <div
+                  key={item.title}
+                  onClick={() => {
+                    setSearchQuery(item.title);
+                    handleAISearch(item.title);
+                  }}
+                  className="bento-card-interactive hover-lift"
+                  style={{
+                    padding: '16px 18px',
+                    borderRadius: 14,
+                    border: isDark ? '1px solid rgba(139, 92, 246, 0.25)' : '1px solid #e2e8f0',
+                    background: isDark ? 'rgba(30, 41, 59, 0.6)' : 'rgba(248, 250, 252, 0.8)',
+                    textAlign: 'left',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <strong style={{ fontSize: 13.5, color: isDark ? '#f8fafc' : '#0f172a' }}>{item.title}</strong>
+                    <Tag color="magenta" style={{ margin: 0, fontSize: 10, borderRadius: 6, fontWeight: 700 }}>#{item.tag}</Tag>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: isDark ? '#94a3b8' : '#64748b', fontFamily: 'monospace' }}>
+                    {item.desc}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <Table 
+            dataSource={filteredNotes} 
+            columns={columns} 
+            rowKey="id" 
+            pagination={{ pageSize: 8, showSizeChanger: false }}
+            style={{ background: 'transparent' }}
+          />
+        )}
       </div>
 
       {/* Modal: Add Grammar Note (With AI Auto-Fill button) */}

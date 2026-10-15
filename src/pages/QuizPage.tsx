@@ -84,6 +84,13 @@ export const QuizPage: React.FC = () => {
   const settings = useSettings();
   const currentLang = settings.language || 'vi';
 
+  const isDark = settings.theme === 'dark' || (
+    settings.theme === 'system' && 
+    typeof window !== 'undefined' && 
+    window.matchMedia && 
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
+
   const hasTimedOutRef = useRef(false);
 
   // Fetch all tags
@@ -389,29 +396,29 @@ export const QuizPage: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
             {/* Glowing Icon */}
             <div style={{ 
-              width: 72, 
-              height: 72, 
+              width: 64, 
+              height: 64, 
               borderRadius: '50%', 
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%)', 
+              background: 'rgba(79, 70, 229, 0.1)', 
               display: 'flex', 
               alignItems: 'center', 
               justifyContent: 'center'
             }}>
-              <Award size={36} color="#8b5cf6" />
+              <Award size={32} color="#4f46e5" />
             </div>
 
             <div>
-              <Title level={3} style={{ fontWeight: 800, color: '#1e293b', margin: '0 0 6px 0', fontFamily: 'Inter' }}>
+              <Title level={3} style={{ fontWeight: 700, color: isDark ? '#f8fafc' : '#1e293b', margin: '0 0 6px 0' }}>
                 {translate('quizIntroTitle', currentLang)}
               </Title>
-              <Text style={{ display: 'block', fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>
+              <Text style={{ display: 'block', fontSize: 13, color: isDark ? '#cbd5e1' : '#64748b', lineHeight: 1.5 }}>
                 {translate('quizIntroDesc', currentLang)}
               </Text>
             </div>
 
             {/* Mode Selection */}
             <div style={{ width: '100%', textAlign: 'left' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: isDark ? '#cbd5e1' : '#334155', marginBottom: 8 }}>
                 🎯 {currentLang === 'vi' ? 'Chọn chế độ ôn luyện:' : 'Select Practice Mode:'}
               </div>
               <Segmented
@@ -428,9 +435,19 @@ export const QuizPage: React.FC = () => {
             </div>
 
             {/* Options Box */}
-            <div style={{ width: '100%', background: 'rgba(0,0,0,0.02)', padding: '16px', borderRadius: 16, border: '1px solid rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: 12, textAlign: 'left' }}>
+            <div style={{ 
+              width: '100%', 
+              background: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0,0,0,0.02)', 
+              padding: '16px', 
+              borderRadius: 16, 
+              border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0,0,0,0.04)', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              gap: 12, 
+              textAlign: 'left' 
+            }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 600, color: '#475569', fontSize: 13 }}>{translate('reviewSelectorLabel', currentLang)}</span>
+                <span style={{ fontWeight: 600, color: isDark ? '#cbd5e1' : '#475569', fontSize: 13 }}>{translate('reviewSelectorLabel', currentLang)}</span>
                 <Select 
                   value={selectedTag} 
                   onChange={setSelectedTag} 
@@ -477,10 +494,10 @@ export const QuizPage: React.FC = () => {
                 width: '100%',
                 borderRadius: 20, 
                 fontWeight: 600, 
-                background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', 
+                background: '#4f46e5', 
                 border: 'none', 
                 height: 48,
-                boxShadow: '0 8px 20px rgba(99, 102, 241, 0.2)',
+                boxShadow: '0 4px 14px rgba(79, 70, 229, 0.25)',
                 color: '#ffffff'
               } : {
                 width: '100%',
@@ -513,8 +530,8 @@ export const QuizPage: React.FC = () => {
       const accuracy = Math.round((correctCount / roundWords.length) * 100) || 0;
       return (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '100%', animation: 'fadeIn 0.5s' }}>
-          <div style={{ padding: 20, background: '#f5f3ff', borderRadius: '50%', marginBottom: 16 }}>
-            <Award size={48} color="#8b5cf6" />
+          <div style={{ padding: 18, background: 'rgba(79, 70, 229, 0.1)', borderRadius: '50%', marginBottom: 16 }}>
+            <Award size={40} color="#4f46e5" />
           </div>
           <Title level={2} style={{ fontWeight: 700, margin: 0 }}>
             {translate('quizResultTitle', currentLang)}
@@ -569,7 +586,7 @@ export const QuizPage: React.FC = () => {
               type="primary" 
               size="large" 
               onClick={() => startNewRound()}
-              style={{ borderRadius: 24, fontWeight: 600, background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)', border: 'none', height: 44, padding: '0 24px' }}
+              style={{ borderRadius: 24, fontWeight: 600, background: '#4f46e5', border: 'none', height: 44, padding: '0 24px', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)' }}
             >
               {translate('btnRetryTopic', currentLang)}
             </Button>
@@ -592,7 +609,7 @@ export const QuizPage: React.FC = () => {
           </div>
           <Progress 
             percent={Math.round((questionIndex / roundWords.length) * 100)} 
-            strokeColor="linear-gradient(90deg, #6366f1 0%, #a855f7 100%)"
+            strokeColor="#4f46e5"
             showInfo={false}
             style={{ margin: 0 }}
           />
@@ -618,24 +635,24 @@ export const QuizPage: React.FC = () => {
                 </div>
               )}
 
-              <Text type="secondary" style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+              <Text type="secondary" style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', letterSpacing: '0.3px' }}>
                 {translate('questionMatchWord', currentLang)}
               </Text>
               
               <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, margin: '18px 0 8px 0' }}>
-                <Title level={1} style={{ fontSize: '2.8rem', margin: 0, color: '#1e293b', fontWeight: 700 }}>
+                <Title level={1} style={{ fontSize: '2.8rem', margin: 0, color: isDark ? '#f8fafc' : '#1e293b', fontWeight: 600, fontFamily: '"Lora", Georgia, serif' }}>
                   {quiz.word.word}
                 </Title>
                 <Button 
                   type="text" 
                   shape="circle" 
-                  icon={<Volume2 size={20} color="#6366f1" />} 
+                  icon={<Volume2 size={20} color="#4f46e5" />} 
                   onClick={() => playAudio(quiz.word.word)} 
                 />
               </div>
               
               {quiz.word.phonetic && (
-                <Text style={{ fontSize: '1.2rem', color: '#64748b', display: 'block', marginBottom: 12, fontStyle: 'italic' }}>
+                <Text style={{ fontSize: '1.2rem', color: isDark ? '#cbd5e1' : '#64748b', display: 'block', marginBottom: 12, fontStyle: 'italic' }}>
                   {quiz.word.phonetic}
                 </Text>
               )}
@@ -678,22 +695,22 @@ export const QuizPage: React.FC = () => {
               <div style={{ display: 'inline-flex', padding: 10, borderRadius: '50%', background: 'rgba(99, 102, 241, 0.1)', marginBottom: 12 }}>
                 <PenTool size={28} color="#6366f1" />
               </div>
-              <Title level={4} style={{ color: '#1e293b', marginBottom: 4 }}>
+              <Title level={4} style={{ color: isDark ? '#f8fafc' : '#1e293b', marginBottom: 4 }}>
                 {currentLang === 'vi' ? 'Điền từ còn thiếu vào câu' : 'Fill in the Missing Word'}
               </Title>
-              <Text style={{ fontSize: 13, color: '#64748b' }}>
+              <Text style={{ fontSize: 13, color: isDark ? '#cbd5e1' : '#64748b' }}>
                 {currentLang === 'vi' ? 'Nghĩa tiếng Việt:' : 'Meaning:'} <strong style={{ color: '#8b5cf6' }}>{quiz.word.meaning}</strong>
               </Text>
 
               <div style={{ 
                 margin: '20px 0', 
                 padding: '16px 20px', 
-                background: 'rgba(99, 102, 241, 0.06)', 
+                background: isDark ? 'rgba(99, 102, 241, 0.12)' : 'rgba(99, 102, 241, 0.06)', 
                 borderRadius: 14, 
-                border: '1px solid rgba(99, 102, 241, 0.15)',
+                border: isDark ? '1px solid rgba(99, 102, 241, 0.25)' : '1px solid rgba(99, 102, 241, 0.15)',
                 fontSize: 16,
                 lineHeight: 1.6,
-                color: '#334155',
+                color: isDark ? '#f8fafc' : '#334155',
                 fontStyle: 'italic'
               }}>
                 "{quiz.maskedSentence}"
@@ -777,7 +794,7 @@ export const QuizPage: React.FC = () => {
                       onClick={handleAIWritingSubmit}
                       disabled={!typedInput.trim()}
                       icon={<Sparkles size={16} />}
-                      style={{ borderRadius: 12, background: 'linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%)', border: 'none', fontWeight: 600 }}
+                      style={{ borderRadius: 12, background: '#4f46e5', border: 'none', fontWeight: 600, boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)' }}
                     >
                       {currentLang === 'vi' ? 'Chấm điểm AI ✨' : 'Evaluate with AI ✨'}
                     </Button>
@@ -820,7 +837,7 @@ export const QuizPage: React.FC = () => {
                 type="primary" 
                 size="large" 
                 onClick={handleNext} 
-                style={{ borderRadius: 24, fontWeight: 600, background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', border: 'none', width: 220, height: 44 }}
+                style={{ borderRadius: 24, fontWeight: 600, background: '#4f46e5', border: 'none', width: 220, height: 44, boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)' }}
               >
                 {questionIndex + 1 === roundWords.length ? translate('btnFinishQuiz', currentLang) : translate('btnNextQuestion', currentLang)}
               </Button>

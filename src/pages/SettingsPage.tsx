@@ -35,6 +35,13 @@ export const SettingsPage: React.FC = () => {
   const currentLang = settings.language || 'vi';
   const nativeInstallCommand = `npm run chatgpt:install-host -- ${typeof chrome !== 'undefined' ? chrome.runtime.id : '<extension-id>'}`;
 
+  const isDark = settings.theme === 'dark' || (
+    settings.theme === 'system' && 
+    typeof window !== 'undefined' && 
+    window.matchMedia && 
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
+
   const isProxyActive = isDeepSeekProxyActive(settings);
 
   useEffect(() => {
@@ -220,7 +227,7 @@ export const SettingsPage: React.FC = () => {
         </Text>
       </div>
       
-      <Card className="glass-card" style={{ padding: '8px 16px' }} bordered={false}>
+      <div className="bento-card" style={{ padding: '24px 28px' }}>
         <Form 
           form={form} 
           layout="vertical" 
@@ -372,9 +379,9 @@ export const SettingsPage: React.FC = () => {
           {/* Quick DeepSeek Local Proxy Card */}
           <div style={{
             background: isProxyActive 
-              ? 'linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(59, 130, 246, 0.04) 100%)' 
-              : 'rgba(241, 245, 249, 0.6)',
-            border: `1px solid ${isProxyActive ? 'rgba(37, 99, 235, 0.25)' : 'rgba(226, 232, 240, 0.8)'}`,
+              ? (isDark ? 'linear-gradient(135deg, rgba(37, 99, 235, 0.2) 0%, rgba(59, 130, 246, 0.1) 100%)' : 'linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(59, 130, 246, 0.04) 100%)')
+              : (isDark ? 'rgba(30, 41, 59, 0.5)' : 'rgba(241, 245, 249, 0.6)'),
+            border: `1px solid ${isProxyActive ? 'rgba(37, 99, 235, 0.35)' : (isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(226, 232, 240, 0.8)')}`,
             borderRadius: 14,
             padding: 16,
             marginBottom: 20
@@ -382,7 +389,7 @@ export const SettingsPage: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ 
-                  background: isProxyActive ? '#2563eb' : '#94a3b8', 
+                  background: isProxyActive ? '#2563eb' : (isDark ? '#475569' : '#94a3b8'), 
                   borderRadius: 10, 
                   padding: 8, 
                   display: 'flex', 
@@ -393,7 +400,7 @@ export const SettingsPage: React.FC = () => {
                 </div>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <strong style={{ fontSize: 16, color: '#1e293b' }}>
+                    <strong style={{ fontSize: 16, color: isDark ? '#f8fafc' : '#1e293b' }}>
                       {translate('deepseekProxyQuickCardTitle', currentLang)}
                     </strong>
                     <Tag color={isProxyActive ? (proxyHealth?.online ? 'success' : 'error') : 'default'} style={{ borderRadius: 10 }}>
@@ -435,9 +442,17 @@ export const SettingsPage: React.FC = () => {
             </div>
 
             {isProxyActive && !proxyHealth?.online && (
-              <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px', marginTop: 14, fontSize: 12, color: '#92400e' }}>
+              <div style={{ 
+                background: isDark ? 'rgba(245, 158, 11, 0.15)' : '#fef3c7', 
+                border: isDark ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid #fde68a', 
+                borderRadius: 8, 
+                padding: '10px 12px', 
+                marginTop: 14, 
+                fontSize: 12, 
+                color: isDark ? '#fde68a' : '#92400e' 
+              }}>
                 <div style={{ fontWeight: 700, marginBottom: 2 }}>⚠️ Máy chủ local chưa phản hồi:</div>
-                Chạy lệnh: <code style={{ color: '#2563eb', fontWeight: 700 }}>ALLOW_BROWSER_ORIGIN=1 npm start</code> trong thư mục <b>FreeDeepseekAPI</b>.
+                Chạy lệnh: <code style={{ color: '#60a5fa', fontWeight: 700 }}>ALLOW_BROWSER_ORIGIN=1 npm start</code> trong thư mục <b>FreeDeepseekAPI</b>.
               </div>
             )}
           </div>
@@ -495,7 +510,7 @@ export const SettingsPage: React.FC = () => {
           )}
 
           {aiProvider === 'deepseek' && (
-            <Card style={{ background: 'rgba(59, 130, 246, 0.04)', border: '1px solid rgba(59, 130, 246, 0.2)', marginBottom: 24, borderRadius: 12 }}>
+            <Card style={{ background: isDark ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.04)', border: isDark ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid rgba(59, 130, 246, 0.2)', marginBottom: 24, borderRadius: 12 }}>
               <Form.Item name="deepseek_auth_type" label={translate('deepseekAuthType', currentLang)} style={{ marginBottom: 16 }}>
                 <Segmented
                   block
@@ -548,14 +563,14 @@ export const SettingsPage: React.FC = () => {
                     rules={[{ required: true }]}
                     initialValue="http://127.0.0.1:9655"
                     extra={
-                      <div style={{ marginTop: 6, fontSize: 13, color: '#64748b' }}>
+                      <div style={{ marginTop: 6, fontSize: 13, color: isDark ? '#94a3b8' : '#64748b' }}>
                         {currentLang === 'vi' ? (
                           <>
-                            💡 Khởi động server bằng lệnh: <code style={{ color: '#2563eb', fontWeight: 600 }}>ALLOW_BROWSER_ORIGIN=1 npm start</code> trong thư mục <b>FreeDeepseekAPI</b>.
+                            💡 Khởi động server bằng lệnh: <code style={{ color: '#60a5fa', fontWeight: 600 }}>ALLOW_BROWSER_ORIGIN=1 npm start</code> trong thư mục <b>FreeDeepseekAPI</b>.
                           </>
                         ) : (
                           <>
-                            💡 Start server with: <code style={{ color: '#2563eb', fontWeight: 600 }}>ALLOW_BROWSER_ORIGIN=1 npm start</code> inside <b>FreeDeepseekAPI</b>.
+                            💡 Start server with: <code style={{ color: '#60a5fa', fontWeight: 600 }}>ALLOW_BROWSER_ORIGIN=1 npm start</code> inside <b>FreeDeepseekAPI</b>.
                           </>
                         )}
                       </div>
@@ -579,11 +594,11 @@ export const SettingsPage: React.FC = () => {
                     label={`${translate('providerDeepSeek', currentLang)} ${translate('apiKeyLabel', currentLang)}`}
                     rules={[{ required: true }]}
                     extra={
-                      <div style={{ marginTop: 6, fontSize: 13, color: '#64748b' }}>
+                      <div style={{ marginTop: 6, fontSize: 13, color: isDark ? '#94a3b8' : '#64748b' }}>
                         {currentLang === 'vi' ? (
                           <>
                             💡 Lấy API Key tại{' '}
-                            <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>
+                            <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer" style={{ color: '#60a5fa', fontWeight: 600 }}>
                               DeepSeek Open Platform (platform.deepseek.com) ↗
                             </a>{' '}
                             (Chi phí siêu rẻ ~$0.14 - $0.28 / 1 triệu tokens, tốc độ phản hồi tức thì)
@@ -591,7 +606,7 @@ export const SettingsPage: React.FC = () => {
                         ) : (
                           <>
                             💡 Get API Key at{' '}
-                            <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>
+                            <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer" style={{ color: '#60a5fa', fontWeight: 600 }}>
                               DeepSeek Open Platform (platform.deepseek.com) ↗
                             </a>{' '}
                             (Extremely cheap ~$0.14 - $0.28 / 1M tokens, ultra-fast responses)
@@ -621,11 +636,11 @@ export const SettingsPage: React.FC = () => {
                     label="DeepSeek User/Bearer Token"
                     rules={[{ required: true }]}
                     extra={
-                      <div style={{ marginTop: 6, fontSize: 13, color: '#64748b' }}>
+                      <div style={{ marginTop: 6, fontSize: 13, color: isDark ? '#94a3b8' : '#64748b' }}>
                         {currentLang === 'vi' ? (
                           <>
                             🌐 Mở tab{' '}
-                            <a href="https://chat.deepseek.com/" target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>
+                            <a href="https://chat.deepseek.com/" target="_blank" rel="noreferrer" style={{ color: '#60a5fa', fontWeight: 600 }}>
                               chat.deepseek.com ↗
                             </a>{' '}
                             → F12 (DevTools) → Application → Local Storage / Cookies → Sao chép token xác thực.
@@ -633,7 +648,7 @@ export const SettingsPage: React.FC = () => {
                         ) : (
                           <>
                             🌐 Open{' '}
-                            <a href="https://chat.deepseek.com/" target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>
+                            <a href="https://chat.deepseek.com/" target="_blank" rel="noreferrer" style={{ color: '#60a5fa', fontWeight: 600 }}>
                               chat.deepseek.com ↗
                             </a>{' '}
                             → F12 (DevTools) → Application → Local Storage / Cookies → Copy auth token.
@@ -656,7 +671,7 @@ export const SettingsPage: React.FC = () => {
           )}
 
           {(aiProvider === 'openai' || aiProvider === 'chatgpt_web') && (
-            <Card style={{ background: 'rgba(16, 185, 129, 0.04)', border: '1px solid rgba(16, 185, 129, 0.2)', marginBottom: 24, borderRadius: 12 }}>
+            <Card style={{ background: isDark ? 'rgba(16, 185, 129, 0.08)' : 'rgba(16, 185, 129, 0.04)', border: isDark ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(16, 185, 129, 0.2)', marginBottom: 24, borderRadius: 12 }}>
               <Form.Item name="openai_auth_type" label={translate('openaiAuthType', currentLang)} style={{ marginBottom: 16 }}>
                 <Segmented
                   block
@@ -786,7 +801,7 @@ export const SettingsPage: React.FC = () => {
           )}
 
           {aiProvider !== 'none' && (
-            <div style={{ marginTop: 8, marginBottom: 24, padding: '16px', background: 'rgba(139, 92, 246, 0.05)', borderRadius: 12, border: '1px solid rgba(139, 92, 246, 0.2)' }}>
+            <div style={{ marginTop: 8, marginBottom: 24, padding: '16px', background: isDark ? 'rgba(139, 92, 246, 0.12)' : 'rgba(139, 92, 246, 0.05)', borderRadius: 12, border: isDark ? '1px solid rgba(139, 92, 246, 0.35)' : '1px solid rgba(139, 92, 246, 0.2)' }}>
               <Space direction="vertical" style={{ width: '100%' }} size="small">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                   <div>
@@ -827,7 +842,7 @@ export const SettingsPage: React.FC = () => {
                       aiTestResult.sampleResponse ? (
                         <div style={{ marginTop: 6 }}>
                           <Text type="secondary" style={{ fontSize: 12 }}>{translate('testAiResponse', currentLang)} </Text>
-                          <Text style={{ fontSize: 13, fontStyle: 'italic', display: 'block', background: 'rgba(0,0,0,0.03)', padding: '6px 10px', borderRadius: 6, marginTop: 4 }}>
+                          <Text style={{ fontSize: 13, fontStyle: 'italic', display: 'block', background: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0,0,0,0.03)', padding: '6px 10px', borderRadius: 6, marginTop: 4 }}>
                             "{aiTestResult.sampleResponse}"
                           </Text>
                         </div>
@@ -858,16 +873,16 @@ export const SettingsPage: React.FC = () => {
               <Button type="primary" htmlType="submit" icon={<Save size={16} />} loading={loading} size="large" style={{ background: '#8b5cf6', width: 180, fontWeight: 600, borderRadius: 24 }}>
                 {translate('btnSaveSettings', currentLang)}
               </Button>
-              <Button onClick={handleSync} icon={<CloudUpload size={16} />} loading={syncing} size="large" style={{ width: 180, fontWeight: 600, borderRadius: 24, color: '#0f172a', borderColor: '#cbd5e1' }}>
+              <Button onClick={handleSync} icon={<CloudUpload size={16} />} loading={syncing} size="large" style={{ width: 180, fontWeight: 600, borderRadius: 24, color: isDark ? '#f8fafc' : '#0f172a', borderColor: isDark ? '#334155' : '#cbd5e1' }}>
                 {translate('btnSyncGithub', currentLang)}
               </Button>
-              <Button onClick={handlePull} icon={<CloudDownload size={16} />} loading={pulling} size="large" style={{ width: 180, fontWeight: 600, borderRadius: 24, color: '#0f172a', borderColor: '#cbd5e1' }}>
+              <Button onClick={handlePull} icon={<CloudDownload size={16} />} loading={pulling} size="large" style={{ width: 180, fontWeight: 600, borderRadius: 24, color: isDark ? '#f8fafc' : '#0f172a', borderColor: isDark ? '#334155' : '#cbd5e1' }}>
                 {translate('btnPullGithub', currentLang)}
               </Button>
             </Space>
           </Form.Item>
         </Form>
-      </Card>
+      </div>
     </div>
   );
 };

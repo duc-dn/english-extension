@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Table, Button, Tag, Space, Modal, Form, Input, message, Tooltip, Typography, Select, Checkbox, Spin } from 'antd';
-import { Plus, Trash2, Wand2, Volume2, Pencil, Download, Upload, Mic, ExternalLink, Sparkles } from 'lucide-react';
+import { Plus, Trash2, Wand2, Volume2, Pencil, Download, Upload, Mic, ExternalLink, Sparkles, BookOpen } from 'lucide-react';
 import { db, addWord, type Word, deleteWord, updateWord, importWords, DuplicateWordError } from '../lib/db';
 import { buildVocabularyCsv, parseVocabularyCsv } from '../lib/vocabularyCsv';
 import { fetchBasicMeaning, generateVocabularyByTopicWithAI, type AIGeneratedWord } from '../lib/translator';
@@ -69,6 +69,13 @@ export const VocabularyManager: React.FC = () => {
 
   const settings = useSettings();
   const currentLang = settings.language || 'vi';
+
+  const isDark = settings.theme === 'dark' || (
+    settings.theme === 'system' && 
+    typeof window !== 'undefined' && 
+    window.matchMedia && 
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
   
   // useLiveQuery from Dexie makes the component auto-update when IndexedDB changes
   const words = useLiveQuery(() => db.words.toArray()) ?? EMPTY_WORDS;
@@ -328,11 +335,16 @@ export const VocabularyManager: React.FC = () => {
       render: (text: string, record: Word) => (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <strong style={{ fontSize: 16, color: '#1e293b' }}>{text}</strong>
+            <span 
+              className="font-lexical"
+              style={{ fontSize: 16, fontWeight: 700, color: isDark ? '#f8fafc' : '#0f172a' }}
+            >
+              {text}
+            </span>
             <Button 
               type="text" 
               size="small" 
-              icon={<Volume2 size={14} color="#8b5cf6" />} 
+              icon={<Volume2 size={14} color="#4f46e5" />} 
               onClick={() => playAudio(text)} 
               title="Phát âm"
               style={{ 
@@ -340,7 +352,7 @@ export const VocabularyManager: React.FC = () => {
                 minWidth: 'auto', 
                 height: 24, 
                 width: 24, 
-                background: 'rgba(139, 92, 246, 0.08)', 
+                background: isDark ? 'rgba(79, 70, 229, 0.18)' : 'rgba(79, 70, 229, 0.08)', 
                 borderRadius: '50%',
                 display: 'flex',
                 alignItems: 'center',
@@ -350,7 +362,7 @@ export const VocabularyManager: React.FC = () => {
             <Button 
               type="text" 
               size="small" 
-              icon={<Mic size={14} color={speakingWord === text && isListening ? '#ef4444' : '#6366f1'} />} 
+              icon={<Mic size={14} color={speakingWord === text && isListening ? '#ef4444' : '#4f46e5'} />} 
               onClick={() => handleTestPronunciation(text)} 
               title="Luyện phát âm"
               style={{ 
@@ -358,7 +370,9 @@ export const VocabularyManager: React.FC = () => {
                 minWidth: 'auto', 
                 height: 24, 
                 width: 24, 
-                background: speakingWord === text && isListening ? '#fee2e2' : 'rgba(99, 102, 241, 0.08)', 
+                background: speakingWord === text && isListening 
+                  ? (isDark ? 'rgba(239, 68, 68, 0.25)' : '#fee2e2') 
+                  : (isDark ? 'rgba(79, 70, 229, 0.18)' : 'rgba(79, 70, 229, 0.08)'), 
                 borderRadius: '50%',
                 display: 'flex',
                 alignItems: 'center',
@@ -373,7 +387,7 @@ export const VocabularyManager: React.FC = () => {
             </div>
           )}
 
-          {record.phonetic && <div style={{ fontSize: 12, color: '#64748b', fontStyle: 'italic', marginTop: 2 }}>{record.phonetic}</div>}
+          {record.phonetic && <div style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b', fontStyle: 'italic', marginTop: 2 }}>{record.phonetic}</div>}
           {record.status && (
             <div style={{ marginTop: 6 }}>
               <Tag color={
@@ -396,16 +410,16 @@ export const VocabularyManager: React.FC = () => {
       width: '24%',
       render: (_: unknown, record: Word) => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <strong style={{ fontSize: 15, color: '#8b5cf6' }}>{record.meaning}</strong>
+          <strong style={{ fontSize: 14, color: isDark ? '#818cf8' : '#4f46e5', fontWeight: 600 }}>{record.meaning}</strong>
           {record.description && (
             <div style={{ 
               fontSize: 13, 
-              color: '#64748b', 
+              color: isDark ? '#cbd5e1' : '#64748b', 
               whiteSpace: 'pre-wrap', 
-              background: 'rgba(0,0,0,0.02)', 
+              background: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0,0,0,0.02)', 
               padding: '6px 10px', 
               borderRadius: 8, 
-              borderLeft: '2px solid #cbd5e1',
+              borderLeft: isDark ? '2px solid rgba(255, 255, 255, 0.12)' : '2px solid #cbd5e1',
               marginTop: 2
             }}>
               {record.description}
@@ -426,7 +440,7 @@ export const VocabularyManager: React.FC = () => {
               <div style={{ 
                 fontSize: 13, 
                 fontStyle: 'italic', 
-                color: '#475569', 
+                color: isDark ? '#cbd5e1' : '#475569', 
                 lineHeight: 1.5,
                 position: 'relative',
                 paddingLeft: 10,
@@ -527,10 +541,10 @@ export const VocabularyManager: React.FC = () => {
     <div style={{ animation: 'fadeIn 0.5s ease' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
         <div>
-          <h2 style={{ margin: 0, fontWeight: 800, fontSize: '26px', color: '#1e293b' }}>
+          <h2 style={{ margin: 0, fontWeight: 800, fontSize: '26px', color: isDark ? '#f8fafc' : '#1e293b', letterSpacing: '-0.4px' }}>
             {translate('vocabTitle', currentLang)}
           </h2>
-          <p style={{ margin: '4px 0 0 0', color: '#64748b', fontSize: 14 }}>
+          <p style={{ margin: '4px 0 0 0', color: isDark ? '#94a3b8' : '#64748b', fontSize: 14 }}>
             {translate('vocabDesc', currentLang)}
           </p>
         </div>
@@ -544,31 +558,30 @@ export const VocabularyManager: React.FC = () => {
             onChange={event => void handleImport(event.target.files?.[0])}
           />
           <Tooltip title={currentLang === 'vi' ? 'CSV cần cột word, meaning; các thẻ cách nhau bằng dấu chấm phẩy.' : 'CSV needs word and meaning columns; separate tags with semicolons.'}>
-            <Button icon={<Upload size={16} />} loading={isImporting} onClick={() => importInputRef.current?.click()}>
+            <Button icon={<Upload size={16} />} loading={isImporting} onClick={() => importInputRef.current?.click()} style={{ borderRadius: 10 }}>
               {currentLang === 'vi' ? 'Nhập CSV' : 'Import CSV'}
             </Button>
           </Tooltip>
-          <Button icon={<Download size={16} />} onClick={handleExport} disabled={!words.length}>
+          <Button icon={<Download size={16} />} onClick={handleExport} disabled={!words.length} style={{ borderRadius: 10 }}>
             {currentLang === 'vi' ? 'Xuất CSV' : 'Export CSV'}
           </Button>
           <Button
             icon={<Sparkles size={16} color="#8b5cf6" />}
             onClick={() => setIsAiGenModalOpen(true)}
             style={{
-              borderRadius: 20,
+              borderRadius: 10,
               fontWeight: 600,
-              color: '#8b5cf6',
-              borderColor: 'rgba(139, 92, 246, 0.35)',
-              background: 'rgba(139, 92, 246, 0.06)'
+              color: isDark ? '#c4b5fd' : '#8b5cf6',
+              borderColor: isDark ? 'rgba(139, 92, 246, 0.4)' : 'rgba(139, 92, 246, 0.35)',
+              background: isDark ? 'rgba(139, 92, 246, 0.15)' : 'rgba(139, 92, 246, 0.06)'
             }}
           >
             {translate('aiVocabGenerateBtn', currentLang)}
           </Button>
           <Button
             type="primary"
-            size="large"
-            style={{ borderRadius: 20, fontWeight: 600, background: 'linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%)', border: 'none', boxShadow: '0 4px 12px rgba(139, 92, 246, 0.25)', height: 44 }}
-            icon={<Plus size={18} />}
+            style={{ borderRadius: 10, fontWeight: 600, background: '#4f46e5', border: 'none', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)', height: 38 }}
+            icon={<Plus size={16} />}
             onClick={() => setIsModalOpen(true)}
           >
             {translate('btnAddNewWord', currentLang)}
@@ -576,7 +589,7 @@ export const VocabularyManager: React.FC = () => {
         </Space>
       </div>
 
-      <div className="glass-card" style={{ padding: 16 }}>
+      <div className="bento-card" style={{ padding: 20 }}>
         {/* Filter & Search Bar */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
           <Input 
@@ -617,28 +630,82 @@ export const VocabularyManager: React.FC = () => {
           </Select>
         </div>
 
-        <Table 
-          dataSource={filteredWords} 
-          columns={columns} 
-          rowKey="id" 
-          pagination={{ pageSize: 8, showSizeChanger: false }}
-          style={{ background: 'transparent' }}
-          className="premium-table"
-          tableLayout="fixed"
-        />
+        {filteredWords.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '48px 16px' }}>
+            <div style={{
+              width: 58,
+              height: 58,
+              borderRadius: 16,
+              background: isDark ? 'rgba(99, 102, 241, 0.15)' : 'rgba(79, 70, 229, 0.08)',
+              color: '#4f46e5',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 16px auto',
+              boxShadow: '0 4px 12px rgba(79, 70, 229, 0.15)'
+            }}>
+              <BookOpen size={28} />
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', marginBottom: 6 }}>
+              {searchText || selectedTags.length || selectedStatus
+                ? (currentLang === 'vi' ? 'Không tìm thấy từ vựng phù hợp bộ lọc' : 'No vocabulary matching filters')
+                : (currentLang === 'vi' ? 'Kho từ vựng của bạn đang trống' : 'Your vocabulary collection is empty')}
+            </div>
+            <p style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: 14, maxWidth: 460, margin: '0 auto 24px auto', lineHeight: 1.5 }}>
+              {currentLang === 'vi'
+                ? 'Bắt đầu tích lũy từ vựng ngay bằng cách thêm từ thủ công, dùng AI tạo bộ từ theo chủ đề, hoặc nhập tệp CSV:'
+                : 'Start building your lexicon by adding words manually, generating curated topic packs with AI, or importing from CSV:'}
+            </p>
+            <Space wrap size="middle">
+              <Button
+                type="primary"
+                size="large"
+                icon={<Plus size={16} />}
+                onClick={() => setIsModalOpen(true)}
+                style={{ borderRadius: 10, fontWeight: 700, background: '#4f46e5', border: 'none' }}
+              >
+                {translate('btnAddNewWord', currentLang)}
+              </Button>
+              <Button
+                size="large"
+                icon={<Sparkles size={16} color="#8b5cf6" />}
+                onClick={() => setIsAiGenModalOpen(true)}
+                style={{
+                  borderRadius: 10,
+                  fontWeight: 600,
+                  borderColor: isDark ? 'rgba(139, 92, 246, 0.4)' : 'rgba(139, 92, 246, 0.35)',
+                  background: isDark ? 'rgba(139, 92, 246, 0.15)' : 'rgba(139, 92, 246, 0.06)',
+                  color: isDark ? '#c4b5fd' : '#8b5cf6'
+                }}
+              >
+                {translate('aiVocabGenerateBtn', currentLang)}
+              </Button>
+            </Space>
+          </div>
+        ) : (
+          <Table 
+            dataSource={filteredWords} 
+            columns={columns} 
+            rowKey="id" 
+            pagination={{ pageSize: 8, showSizeChanger: false }}
+            style={{ background: 'transparent' }}
+            className="premium-table"
+            tableLayout="fixed"
+          />
+        )}
       </div>
 
       {/* Modal Thêm Từ Mới */}
       <Modal
-        title={<span style={{ fontWeight: 800, fontSize: 18, color: '#1e293b' }}>{translate('addWordTitle', currentLang)}</span>}
+        title={<span style={{ fontWeight: 800, fontSize: 18, color: isDark ? '#f8fafc' : '#1e293b' }}>{translate('addWordTitle', currentLang)}</span>}
         open={isModalOpen}
         onCancel={() => setIsModalOpen(false)}
         onOk={() => form.submit()}
         okText={translate('btnSave', currentLang)}
         cancelText={translate('btnCancel', currentLang)}
         destroyOnClose
-        okButtonProps={{ style: { borderRadius: 16, background: '#8b5cf6' } }}
-        cancelButtonProps={{ style: { borderRadius: 16 } }}
+        okButtonProps={{ style: { borderRadius: 12, background: '#4f46e5' } }}
+        cancelButtonProps={{ style: { borderRadius: 12 } }}
       >
         <Form form={form} layout="vertical" onFinish={handleAddWord}>
           <Form.Item label={translate('wordLabel', currentLang)} required>
@@ -791,8 +858,9 @@ export const VocabularyManager: React.FC = () => {
           style={{
             borderRadius: 8,
             fontWeight: 700,
-            background: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)',
+            background: '#4f46e5',
             border: 'none',
+            boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)',
             height: 40,
             marginBottom: 20
           }}

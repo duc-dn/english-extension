@@ -93,6 +93,13 @@ export const PomodoroPage: React.FC = () => {
   const settings = useSettings();
   const currentLang = settings.language || 'vi';
 
+  const isDark = settings.theme === 'dark' || (
+    settings.theme === 'system' && 
+    typeof window !== 'undefined' && 
+    window.matchMedia && 
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
+
   const {
     mode,
     timeLeft,
@@ -221,9 +228,13 @@ export const PomodoroPage: React.FC = () => {
         return {
           color: '#f43f5e',
           colorSecondary: '#fb7185',
-          bgGradient: 'radial-gradient(circle at 50% 30%, rgba(244, 63, 94, 0.12) 0%, rgba(139, 92, 246, 0.05) 50%, rgba(255, 255, 255, 0) 100%)',
-          cardBg: 'linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(255, 241, 242, 0.6) 100%)',
-          border: 'rgba(244, 63, 94, 0.25)',
+          bgGradient: isDark
+            ? 'radial-gradient(circle at 50% 30%, rgba(244, 63, 94, 0.15) 0%, rgba(139, 92, 246, 0.08) 50%, rgba(11, 15, 25, 0) 100%)'
+            : 'radial-gradient(circle at 50% 30%, rgba(244, 63, 94, 0.12) 0%, rgba(139, 92, 246, 0.05) 50%, rgba(255, 255, 255, 0) 100%)',
+          cardBg: isDark
+            ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(244, 63, 94, 0.12) 100%)'
+            : 'linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(255, 241, 242, 0.6) 100%)',
+          border: isDark ? 'rgba(244, 63, 94, 0.35)' : 'rgba(244, 63, 94, 0.25)',
           btnGradient: 'linear-gradient(135deg, #f43f5e 0%, #fb7185 100%)',
           shadow: '0 12px 36px rgba(244, 63, 94, 0.28)',
           label: translate('pomodoroFocus', currentLang),
@@ -235,9 +246,13 @@ export const PomodoroPage: React.FC = () => {
         return {
           color: '#10b981',
           colorSecondary: '#34d399',
-          bgGradient: 'radial-gradient(circle at 50% 30%, rgba(16, 185, 129, 0.12) 0%, rgba(6, 182, 212, 0.05) 50%, rgba(255, 255, 255, 0) 100%)',
-          cardBg: 'linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(236, 253, 245, 0.6) 100%)',
-          border: 'rgba(16, 185, 129, 0.25)',
+          bgGradient: isDark
+            ? 'radial-gradient(circle at 50% 30%, rgba(16, 185, 129, 0.15) 0%, rgba(6, 182, 212, 0.08) 50%, rgba(11, 15, 25, 0) 100%)'
+            : 'radial-gradient(circle at 50% 30%, rgba(16, 185, 129, 0.12) 0%, rgba(6, 182, 212, 0.05) 50%, rgba(255, 255, 255, 0) 100%)',
+          cardBg: isDark
+            ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(16, 185, 129, 0.12) 100%)'
+            : 'linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(236, 253, 245, 0.6) 100%)',
+          border: isDark ? 'rgba(16, 185, 129, 0.35)' : 'rgba(16, 185, 129, 0.25)',
           btnGradient: 'linear-gradient(135deg, #10b981 0%, #34d399 100%)',
           shadow: '0 12px 36px rgba(16, 185, 129, 0.28)',
           label: translate('pomodoroShortBreak', currentLang),
@@ -249,9 +264,13 @@ export const PomodoroPage: React.FC = () => {
         return {
           color: '#0284c7',
           colorSecondary: '#38bdf8',
-          bgGradient: 'radial-gradient(circle at 50% 30%, rgba(2, 132, 199, 0.12) 0%, rgba(99, 102, 241, 0.05) 50%, rgba(255, 255, 255, 0) 100%)',
-          cardBg: 'linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(240, 249, 255, 0.6) 100%)',
-          border: 'rgba(2, 132, 199, 0.25)',
+          bgGradient: isDark
+            ? 'radial-gradient(circle at 50% 30%, rgba(2, 132, 199, 0.15) 0%, rgba(99, 102, 241, 0.08) 50%, rgba(11, 15, 25, 0) 100%)'
+            : 'radial-gradient(circle at 50% 30%, rgba(2, 132, 199, 0.12) 0%, rgba(99, 102, 241, 0.05) 50%, rgba(255, 255, 255, 0) 100%)',
+          cardBg: isDark
+            ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(2, 132, 199, 0.12) 100%)'
+            : 'linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(240, 249, 255, 0.6) 100%)',
+          border: isDark ? 'rgba(2, 132, 199, 0.35)' : 'rgba(2, 132, 199, 0.25)',
           btnGradient: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)',
           shadow: '0 12px 36px rgba(2, 132, 199, 0.28)',
           label: translate('pomodoroLongBreak', currentLang),
@@ -260,7 +279,7 @@ export const PomodoroPage: React.FC = () => {
           ringClass: isRunning ? 'pomodoro-ring-active-break' : '',
         };
     }
-  }, [mode, isRunning, currentLang]);
+  }, [mode, isRunning, currentLang, isDark]);
 
   return (
     <div style={{ position: 'relative', minHeight: '100%', paddingBottom: 32 }}>
@@ -376,10 +395,10 @@ export const PomodoroPage: React.FC = () => {
                 },
               ]}
               style={{
-                background: 'rgba(255, 255, 255, 0.65)',
+                background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'rgba(255, 255, 255, 0.65)',
                 padding: 4,
                 borderRadius: 24,
-                border: '1px solid rgba(226, 232, 240, 0.8)',
+                border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(226, 232, 240, 0.8)',
               }}
             />
           </div>
@@ -400,7 +419,7 @@ export const PomodoroPage: React.FC = () => {
                 size={270}
                 strokeColor={modeTheme.color}
                 strokeWidth={5}
-                trailColor="rgba(226, 232, 240, 0.6)"
+                trailColor={isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(226, 232, 240, 0.6)'}
                 format={() => (
                   <div style={{ textAlign: 'center', padding: '0 10px' }}>
                     <Tag 
@@ -423,10 +442,10 @@ export const PomodoroPage: React.FC = () => {
                       fontSize: 56, 
                       fontWeight: 800, 
                       fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace", 
-                      color: '#1e293b',
+                      color: isDark ? '#f8fafc' : '#1e293b',
                       lineHeight: 1.1,
                       letterSpacing: '-1.5px',
-                      textShadow: '0 2px 10px rgba(0,0,0,0.06)'
+                      textShadow: isDark ? '0 2px 12px rgba(0,0,0,0.4)' : '0 2px 10px rgba(0,0,0,0.06)'
                     }}>
                       {formatTime(timeLeft)}
                     </div>
@@ -618,10 +637,10 @@ export const PomodoroPage: React.FC = () => {
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ background: '#fef3c7', padding: '4px 8px', borderRadius: 8, display: 'flex', alignItems: 'center' }}>
+                    <span style={{ background: isDark ? 'rgba(245, 158, 11, 0.2)' : '#fef3c7', padding: '4px 8px', borderRadius: 8, display: 'flex', alignItems: 'center' }}>
                       <Quote size={13} color="#d97706" />
                     </span>
-                    <strong style={{ fontSize: 14, color: '#1e293b' }}>
+                    <strong style={{ fontSize: 14, color: isDark ? '#f8fafc' : '#1e293b' }}>
                       {translate('pomodoroQuoteTitle', currentLang)}
                     </strong>
                   </div>
@@ -639,24 +658,27 @@ export const PomodoroPage: React.FC = () => {
                       <Button
                         type="text"
                         size="small"
-                        icon={<RefreshCw size={14} color="#64748b" />}
+                        icon={<RefreshCw size={14} color={isDark ? '#94a3b8' : '#64748b'} />}
                         onClick={handleNextQuote}
                       />
                     </Tooltip>
                   </div>
                 </div>
 
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', fontStyle: 'italic', lineHeight: 1.5, marginBottom: 8 }}>
+                <div 
+                  className="font-lexical"
+                  style={{ fontSize: 16, fontWeight: 700, color: isDark ? '#f8fafc' : '#1e293b', fontStyle: 'italic', lineHeight: 1.5, marginBottom: 8 }}
+                >
                   "{currentQuote.english}"
                 </div>
 
-                <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.4 }}>
+                <div style={{ fontSize: 13, color: isDark ? '#cbd5e1' : '#64748b', lineHeight: 1.4 }}>
                   {currentQuote.vietnamese}
                 </div>
               </div>
 
               <div style={{ textAlign: 'right', marginTop: 14 }}>
-                <Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>
+                <Text type="secondary" style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : undefined }}>
                   — {currentQuote.author}
                 </Text>
               </div>
@@ -674,10 +696,10 @@ export const PomodoroPage: React.FC = () => {
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ background: '#ede9fe', padding: '4px 8px', borderRadius: 8, display: 'flex', alignItems: 'center' }}>
+                    <span style={{ background: isDark ? 'rgba(139, 92, 246, 0.2)' : '#ede9fe', padding: '4px 8px', borderRadius: 8, display: 'flex', alignItems: 'center' }}>
                       <BookOpen size={13} color="#8b5cf6" />
                     </span>
-                    <strong style={{ fontSize: 14, color: '#1e293b' }}>
+                    <strong style={{ fontSize: 14, color: isDark ? '#f8fafc' : '#1e293b' }}>
                       {translate('pomodoroWordTitle', currentLang)}
                     </strong>
                   </div>
@@ -687,7 +709,7 @@ export const PomodoroPage: React.FC = () => {
                       type="text"
                       size="small"
                       loading={loadingWord}
-                      icon={<RefreshCw size={14} color="#64748b" />}
+                      icon={<RefreshCw size={14} color={isDark ? '#94a3b8' : '#64748b'} />}
                       onClick={loadRandomFocusWord}
                     />
                   </Tooltip>
@@ -696,11 +718,14 @@ export const PomodoroPage: React.FC = () => {
                 {focusWord ? (
                   <div>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
-                      <span style={{ fontSize: 20, fontWeight: 800, color: '#8b5cf6' }}>
+                      <span 
+                        className="font-lexical"
+                        style={{ fontSize: 20, fontWeight: 800, color: '#8b5cf6' }}
+                      >
                         {focusWord.word}
                       </span>
                       {focusWord.phonetic && (
-                        <span style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>
+                        <span style={{ fontSize: 13, color: isDark ? '#94a3b8' : '#64748b', fontStyle: 'italic' }}>
                           {focusWord.phonetic}
                         </span>
                       )}
@@ -713,12 +738,12 @@ export const PomodoroPage: React.FC = () => {
                       />
                     </div>
 
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: isDark ? '#e2e8f0' : '#334155', marginBottom: 6 }}>
                       {focusWord.meaning}
                     </div>
 
                     {focusWord.example && (
-                      <div style={{ fontSize: 12, color: '#64748b', fontStyle: 'italic', background: 'rgba(139, 92, 246, 0.05)', padding: '6px 10px', borderRadius: 8 }}>
+                      <div style={{ fontSize: 12, color: isDark ? '#cbd5e1' : '#64748b', fontStyle: 'italic', background: isDark ? 'rgba(139, 92, 246, 0.12)' : 'rgba(139, 92, 246, 0.05)', padding: '6px 10px', borderRadius: 8 }}>
                         "{focusWord.example}"
                       </div>
                     )}

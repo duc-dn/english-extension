@@ -38,6 +38,7 @@ export const PassiveHighlightManager: React.FC = () => {
 
     // Fetch learning words from background
     chrome.runtime.sendMessage({ action: 'GET_LEARNING_WORDS' }, (res) => {
+      if (chrome.runtime.lastError) return;
       if (res && res.ok && Array.isArray(res.words) && res.words.length > 0) {
         setLearningWords(res.words);
         const map = new Map<string, Word>();
@@ -210,6 +211,7 @@ export const PassiveHighlightManager: React.FC = () => {
 
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage({ action: 'MARK_WORD_MASTERED', payload: { id: activeWord.id } }, () => {
+        if (chrome.runtime.lastError) return;
         // Remove highlight from page elements
         const elements = document.querySelectorAll(`[data-word-id="${activeWord.id}"]`);
         elements.forEach(el => {
@@ -259,7 +261,7 @@ export const PassiveHighlightManager: React.FC = () => {
           borderRadius: 14,
           padding: 14,
           boxShadow: '0 12px 36px rgba(0, 0, 0, 0.35)',
-          border: '1px solid rgba(139, 92, 246, 0.3)',
+          border: '1px solid rgba(79, 70, 229, 0.35)',
           zIndex: 2147483647,
           color: '#ffffff',
           fontFamily: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif",
@@ -271,15 +273,15 @@ export const PassiveHighlightManager: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ 
-              background: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)', 
+              background: '#4f46e5', 
               color: '#fff', 
               fontSize: 10, 
-              fontWeight: 800, 
-              padding: '2px 6px', 
+              fontWeight: 700, 
+              padding: '2px 7px', 
               borderRadius: 6,
-              letterSpacing: 0.5 
+              letterSpacing: 0.3 
             }}>
-              SRS VOCAB
+              Ghi nhớ SRS
             </span>
             <span style={{ fontSize: 11, color: '#94a3b8' }}>
               {activeWord.status === 'learning' ? 'Đang học' : 'Từ mới'}
@@ -296,7 +298,7 @@ export const PassiveHighlightManager: React.FC = () => {
 
         {/* Word, Phonetic, Audio */}
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
-          <strong style={{ fontSize: 18, color: '#c084fc', letterSpacing: '0.2px' }}>
+          <strong style={{ fontSize: 19, color: '#ffffff', fontFamily: '"Lora", Georgia, serif', fontWeight: 600 }}>
             {activeWord.word}
           </strong>
           {activeWord.phonetic && (
@@ -309,7 +311,7 @@ export const PassiveHighlightManager: React.FC = () => {
               e.stopPropagation();
               playAudio(activeWord.word);
             }}
-            style={{ cursor: 'pointer', color: '#c084fc', display: 'flex', padding: 2 }}
+            style={{ cursor: 'pointer', color: '#818cf8', display: 'flex', padding: 2 }}
             title="Nghe phát âm"
           >
             <Volume2 size={14} />
@@ -324,14 +326,15 @@ export const PassiveHighlightManager: React.FC = () => {
         {/* Example */}
         {activeWord.example && (
           <div style={{ 
-            fontSize: 12, 
-            color: '#cbd5e1', 
+            fontSize: 12.5, 
+            color: '#e2e8f0', 
             fontStyle: 'italic', 
+            fontFamily: '"Lora", Georgia, serif',
             background: 'rgba(255, 255, 255, 0.05)', 
-            padding: '6px 8px', 
+            padding: '7px 10px', 
             borderRadius: 6,
             marginBottom: 10,
-            borderLeft: '2px solid #8b5cf6'
+            borderLeft: '2px solid #4f46e5'
           }}>
             "{activeWord.example}"
           </div>
@@ -342,7 +345,7 @@ export const PassiveHighlightManager: React.FC = () => {
           <button
             onClick={handleMarkMastered}
             style={{
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              background: '#059669',
               color: '#ffffff',
               border: 'none',
               borderRadius: 8,

@@ -14,6 +14,11 @@ export const translations = {
     // Dashboard Page
     welcomeBack: 'Chào mừng bạn quay lại',
     whatToLearn: 'Hôm nay bạn muốn học gì nào? 🚀',
+    today: 'Hôm nay',
+    todayIs: 'Hôm nay là',
+    weekLabel: 'Tuần',
+    calendarTitle: 'Lịch hôm nay',
+    viewCalendar: 'Xem lịch',
     totalVocab: 'Tổng số từ vựng',
     dueToday: 'Cần ôn tập hôm nay',
     streak: 'Chuỗi ngày học (Streak)',
@@ -394,6 +399,11 @@ export const translations = {
     // Dashboard Page
     welcomeBack: 'Welcome back',
     whatToLearn: 'What would you like to learn today? 🚀',
+    today: 'Today',
+    todayIs: 'Today is',
+    weekLabel: 'Week',
+    calendarTitle: "Today's Calendar",
+    viewCalendar: 'View Calendar',
     totalVocab: 'Total Words',
     dueToday: 'Due Today',
     streak: 'Learning Streak',

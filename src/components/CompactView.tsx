@@ -12,6 +12,7 @@ import { Input, Button, Tag, Progress, message, ConfigProvider, Modal, theme as 
 import { saveSettings, useSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
 import { PomodoroTimerWidget } from './PomodoroTimerWidget';
+import { TodayDateWidget } from './TodayDateWidget';
 
 export const CompactView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'lookup' | 'vocab' | 'flashcards' | 'stats' | 'settings' | 'aichat'>('lookup');
@@ -60,13 +61,14 @@ export const CompactView: React.FC = () => {
     (settings.ai_provider === 'ollama' && !!settings.ollama_url);
 
   const colors = {
-    bgBase: isDark ? '#0f121d' : '#f8fafc',
-    bgContainer: isDark ? '#161925' : '#ffffff',
-    bgLight: isDark ? '#1e2235' : '#f1f5f9',
-    textMain: isDark ? '#ffffff' : '#1e293b',
-    textMuted: isDark ? '#cbd5e1' : '#64748b',
-    border: isDark ? '#25283b' : '#e2e8f0',
-    borderLight: isDark ? '#1e2235' : '#f1f5f9',
+    bgBase: isDark ? '#0b0f19' : '#f8fafc',
+    bgContainer: isDark ? '#111827' : '#ffffff',
+    bgLight: isDark ? '#1f2937' : '#f0f9ff',
+    textMain: isDark ? '#f8fafc' : '#0f172a',
+    textMuted: isDark ? '#94a3b8' : '#64748b',
+    border: isDark ? '#2d3748' : '#e0f2fe',
+    borderLight: isDark ? '#1f2937' : '#f0f9ff',
+    primary: '#0284c7',
   };
 
   // Load IndexedDB words
@@ -812,26 +814,26 @@ export const CompactView: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeIn 0.2s' }}>
             {!isAiConfigured && (
               <div style={{ 
-                background: 'rgba(245, 158, 11, 0.1)', 
+                background: 'rgba(245, 158, 11, 0.08)', 
                 border: '1px solid rgba(245, 158, 11, 0.2)', 
-                borderRadius: 10, 
-                padding: '10px 14px', 
-                fontSize: '12px', 
+                borderRadius: 8, 
+                padding: '6px 10px', 
+                fontSize: '11px', 
                 color: '#fbbf24', 
                 display: 'flex', 
                 justifyContent: 'space-between', 
                 alignItems: 'center',
                 animation: 'fadeIn 0.2s'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, paddingRight: 8 }}>
-                  <Sparkles size={14} color="#fbbf24" style={{ flexShrink: 0 }} />
-                  <span style={{ fontWeight: 500, lineHeight: 1.4 }}>{translate('aiNotConfigured', currentLang)}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, paddingRight: 6 }}>
+                  <Sparkles size={12} color="#fbbf24" style={{ flexShrink: 0 }} />
+                  <span style={{ fontWeight: 500, lineHeight: 1.3 }}>{translate('aiNotConfigured', currentLang)}</span>
                 </div>
                 <Button 
                   type="link" 
                   size="small" 
                   onClick={() => openFullPageTab('settings')}
-                  style={{ padding: 0, height: 'auto', color: '#60a5fa', fontSize: '12px', fontWeight: 600 }}
+                  style={{ padding: 0, height: 'auto', color: '#60a5fa', fontSize: '11px', fontWeight: 600, flexShrink: 0 }}
                 >
                   {translate('setupNow', currentLang)}
                 </Button>
@@ -849,43 +851,55 @@ export const CompactView: React.FC = () => {
                 type="primary" 
                 onClick={handleManualSearch} 
                 loading={manualLoading}
-                style={{ height: 38, background: '#8b5cf6', border: 'none', borderRadius: 8, color: '#ffffff', fontWeight: 600 }}
+                style={{ height: 38, background: '#4f46e5', border: 'none', borderRadius: 8, color: '#ffffff', fontWeight: 600 }}
               >
                 {translate('lookupBtn', currentLang)}
               </Button>
             </div>
 
             {manualResult ? (
-              <div style={{ background: colors.bgContainer, border: '1px solid ' + colors.border, borderRadius: 16, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, animation: 'fadeIn 0.3s' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <strong style={{ fontSize: '17px', color: colors.textMain }}>{manualResult.word}</strong>
+              <div style={{ background: colors.bgContainer, border: '1px solid ' + colors.border, borderRadius: 14, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, animation: 'fadeIn 0.3s' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ 
+                    fontFamily: '"Lora", serif', 
+                    fontSize: '21px', 
+                    fontWeight: 600, 
+                    color: colors.textMain, 
+                    letterSpacing: '-0.3px' 
+                  }}>
+                    {manualResult.word}
+                  </span>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <Button type="text" size="small" style={{ background: colors.bgLight, border: '1px solid ' + colors.border, fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 2, color: colors.textMain }} onClick={() => speakWord(manualResult.word, 'en-US')}>
-                      <Volume2 size={12} color="#6366f1" /> US
+                      <Volume2 size={12} color="#4f46e5" /> US
                     </Button>
                     <Button type="text" size="small" style={{ background: colors.bgLight, border: '1px solid ' + colors.border, fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 2, color: colors.textMain }} onClick={() => speakWord(manualResult.word, 'en-GB')}>
-                      <Volume2 size={12} color="#a855f7" /> UK
+                      <Volume2 size={12} color="#6366f1" /> UK
                     </Button>
                   </div>
                 </div>
 
                 {manualResult.phonetic && (
-                  <span style={{ color: '#34d399', fontSize: '13px', fontStyle: 'italic', fontWeight: 600 }}>
+                  <span style={{ color: isDark ? '#34d399' : '#059669', fontSize: '13px', fontStyle: 'italic', fontWeight: 500 }}>
                     {manualResult.phonetic}
                   </span>
                 )}
 
-                <div style={{ borderTop: '1px solid ' + colors.border, paddingTop: 8 }}>
-                  <span style={{ fontSize: '10px', fontWeight: 800, color: colors.textMuted, letterSpacing: '0.5px' }}>{translate('meaningSec', currentLang)} (FREE)</span>
-                  <div style={{ fontSize: '14px', fontWeight: 400, color: '#c084fc', marginTop: 2 }}>
+                <div style={{ borderTop: '1px solid ' + colors.borderLight, paddingTop: 8 }}>
+                  <span style={{ fontSize: '10.5px', fontWeight: 700, color: colors.textMuted, letterSpacing: '0.2px' }}>
+                    {translate('meaningSec', currentLang)}
+                  </span>
+                  <div style={{ fontSize: '14px', fontWeight: 500, color: isDark ? '#f8fafc' : '#1e293b', marginTop: 2 }}>
                     {manualResult.vietnameseMeaning || 'Chưa tìm thấy bản dịch'}
                   </div>
                 </div>
 
                 {manualResult.meanings?.[0]?.definitions?.[0]?.definition && (
                   <div>
-                    <span style={{ fontSize: '10px', fontWeight: 800, color: colors.textMuted, letterSpacing: '0.5px' }}>{translate('definitionSec', currentLang)}</span>
-                    <div style={{ fontSize: '12px', color: colors.textMain, marginTop: 2, lineHeight: '1.4' }}>
+                    <span style={{ fontSize: '10.5px', fontWeight: 700, color: colors.textMuted, letterSpacing: '0.2px' }}>
+                      {translate('definitionSec', currentLang)}
+                    </span>
+                    <div style={{ fontSize: '12px', color: colors.textMain, marginTop: 2, lineHeight: '1.45' }}>
                       {manualResult.meanings[0].definitions[0].definition}
                     </div>
                   </div>
@@ -897,7 +911,7 @@ export const CompactView: React.FC = () => {
                     onClick={saveManualWord}
                     disabled={isManualSaved}
                     icon={isManualSaved ? <Check size={14} /> : <Plus size={14} />}
-                    style={{ flex: 1, height: 38, borderRadius: 8, background: isManualSaved ? '#10b981' : '#8b5cf6', border: 'none', fontWeight: 600, color: '#ffffff' }}
+                    style={{ flex: 1, height: 38, borderRadius: 8, background: isManualSaved ? '#059669' : '#4f46e5', border: 'none', fontWeight: 600, color: '#ffffff' }}
                   >
                     {isManualSaved 
                       ? (manualResult.word.split(/\s+/).filter(Boolean).length > 1 ? translate('savedPhraseBtn', currentLang) : translate('savedWordBtn', currentLang)) 
@@ -942,13 +956,102 @@ export const CompactView: React.FC = () => {
                 )}
               </div>
             ) : (
-              <div style={{ textAlign: 'center', padding: '30px 16px', color: colors.textMuted }}>
-                <BookOpen size={32} style={{ margin: '0 auto 8px auto', opacity: 0.5 }} />
-                <p style={{ fontSize: '12px', margin: 0 }}>
-                  {currentLang === 'vi' 
-                    ? 'Bôi đen từ vựng trên trang web hoặc nhập trực tiếp để tra nghĩa.' 
-                    : 'Highlight a word on web pages or input manually to translate.'}
-                </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
+                {/* Learning Quick Overview */}
+                <div style={{ 
+                  background: colors.bgContainer, 
+                  border: '1px solid ' + colors.borderLight, 
+                  borderRadius: 12, 
+                  padding: '12px 14px',
+                  display: 'flex',
+                  justifyContent: 'space-around',
+                  alignItems: 'center'
+                }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '17px', fontWeight: 800, color: '#8b5cf6' }}>{words.length}</div>
+                    <div style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 500 }}>
+                      {currentLang === 'vi' ? 'Tổng từ đã lưu' : 'Total saved'}
+                    </div>
+                  </div>
+                  <div style={{ width: 1, height: 24, background: colors.borderLight }} />
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '17px', fontWeight: 800, color: '#10b981' }}>
+                      {words.filter(w => w.status === 'learning').length}
+                    </div>
+                    <div style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 500 }}>
+                      {currentLang === 'vi' ? 'Đang học' : 'Learning'}
+                    </div>
+                  </div>
+                  <div style={{ width: 1, height: 24, background: colors.borderLight }} />
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '17px', fontWeight: 800, color: '#f59e0b' }}>
+                      {words.filter(w => w.status === 'mastered').length}
+                    </div>
+                    <div style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 500 }}>
+                      {currentLang === 'vi' ? 'Đã thuộc' : 'Mastered'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick actions */}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button
+                    onClick={() => setActiveTab('flashcards')}
+                    style={{
+                      flex: 1,
+                      height: 34,
+                      borderRadius: 8,
+                      background: colors.bgLight,
+                      border: '1px solid ' + colors.border,
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: colors.textMain,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6
+                    }}
+                  >
+                    <Layers size={13} color="#8b5cf6" />
+                    {currentLang === 'vi' ? 'Luyện Flashcards' : 'Flashcards'}
+                  </Button>
+
+                  <Button
+                    onClick={() => setActiveTab('aichat')}
+                    style={{
+                      flex: 1,
+                      height: 34,
+                      borderRadius: 8,
+                      background: colors.bgLight,
+                      border: '1px solid ' + colors.border,
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: colors.textMain,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6
+                    }}
+                  >
+                    <MessageSquare size={13} color="#38bdf8" />
+                    {currentLang === 'vi' ? 'Hỏi AI Chat' : 'AI Chat'}
+                  </Button>
+                </div>
+
+                {/* Quick Hint */}
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '10px 12px', 
+                  color: colors.textMuted,
+                  fontSize: '11px',
+                  background: isDark ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.04)',
+                  borderRadius: 8,
+                  border: '1px dashed ' + (isDark ? 'rgba(139, 92, 246, 0.25)' : 'rgba(139, 92, 246, 0.15)')
+                }}>
+                  💡 {currentLang === 'vi' 
+                    ? 'Bôi đen từ vựng trên bất kỳ trang web nào để tra nghĩa nhanh.' 
+                    : 'Highlight any word on web pages for instant translation.'}
+                </div>
               </div>
             )}
           </div>
@@ -1542,51 +1645,45 @@ export const CompactView: React.FC = () => {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          padding: '12px 16px',
+          padding: '10px 14px',
           borderBottom: '1px solid ' + colors.borderLight,
           background: colors.bgContainer,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <img 
-              src="/logo.png" 
-              alt="Logo" 
-              style={{ 
-                width: 28, 
-                height: 28, 
-                borderRadius: 6, 
-                objectFit: 'cover',
-                boxShadow: '0 2px 6px rgba(139, 92, 246, 0.25)'
-              }} 
-            />
-            <span style={{ fontWeight: 800, fontSize: '15px', color: colors.textMain, letterSpacing: '0.3px' }}>
-              Reading Assistant
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <div style={{
+              width: 26,
+              height: 26,
+              borderRadius: 8,
+              overflow: 'hidden',
+              boxShadow: '0 2px 6px rgba(79, 70, 229, 0.25)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: '#4f46e5'
+            }}>
+              <img 
+                src="/logo.png" 
+                alt="Logo" 
+                style={{ 
+                  width: '100%', 
+                  height: '100%', 
+                  objectFit: 'cover',
+                }} 
+              />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontWeight: 800, fontSize: '13px', color: colors.textMain, letterSpacing: '-0.2px', lineHeight: 1.2 }}>
+                English Space
+              </span>
+              <span style={{ fontSize: '10px', color: colors.textMuted, fontWeight: 500 }}>
+                Assistant
+              </span>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+            <TodayDateWidget compact={true} showTime={false} />
             <PomodoroTimerWidget compact={true} />
-            {!isAiConfigured && (
-              <Button 
-                type="text" 
-                size="small" 
-                onClick={() => openFullPageTab('settings')}
-                style={{ 
-                  background: 'rgba(239, 68, 68, 0.1)', 
-                  border: '1px solid rgba(239, 68, 68, 0.2)', 
-                  borderRadius: 6, 
-                  color: '#f87171', 
-                  fontSize: '10px', 
-                  fontWeight: 700,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  padding: '2px 6px',
-                  height: 22
-                }}
-              >
-                <Sparkles size={10} /> Setup AI
-              </Button>
-            )}
             
             <Button
               type="text"
@@ -1596,13 +1693,14 @@ export const CompactView: React.FC = () => {
                 fontSize: '10px',
                 fontWeight: 800,
                 margin: 0,
-                borderRadius: 6,
-                background: colors.bgLight,
-                color: '#c084fc',
-                border: 'none',
+                borderRadius: 7,
+                background: isDark ? 'rgba(139, 92, 246, 0.15)' : 'rgba(139, 92, 246, 0.08)',
+                color: isDark ? '#c4b5fd' : '#7c3aed',
+                border: isDark ? '1px solid rgba(139, 92, 246, 0.3)' : '1px solid rgba(139, 92, 246, 0.18)',
                 height: 24,
-                padding: '0 6px'
+                padding: '0 7px'
               }}
+              title="Ngôn ngữ (VI/EN)"
             >
               {currentLang.toUpperCase()}
             </Button>
@@ -1611,61 +1709,88 @@ export const CompactView: React.FC = () => {
               type="text" 
               size="small" 
               onClick={toggleTheme}
-              icon={isDark ? <Sun size={14} color="#f59e0b" /> : <Moon size={14} color="#94a3b8" />}
-              style={{ width: 24, height: 24, padding: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.bgLight, border: '1px solid ' + colors.border }}
+              icon={isDark ? <Sun size={13} color="#fbbf24" /> : <Moon size={13} color="#6366f1" />}
+              style={{ 
+                width: 24, 
+                height: 24, 
+                padding: 0, 
+                borderRadius: 7, 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                background: colors.bgLight, 
+                border: '1px solid ' + colors.border 
+              }}
+              title={isDark ? 'Chế độ sáng' : 'Chế độ tối'}
             />
             
             <Button 
               type="text" 
               size="small" 
               onClick={() => openFullPageTab('')}
-              icon={<ExternalLink size={13} color="#60a5fa" />}
-              style={{ width: 24, height: 24, padding: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.bgLight, border: '1px solid ' + colors.border }}
+              icon={<ExternalLink size={12} color="#4f46e5" />}
+              style={{ 
+                width: 24, 
+                height: 24, 
+                padding: 0, 
+                borderRadius: 7, 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                background: isDark ? 'rgba(79, 70, 229, 0.15)' : 'rgba(79, 70, 229, 0.08)', 
+                border: isDark ? '1px solid rgba(79, 70, 229, 0.3)' : '1px solid rgba(79, 70, 229, 0.2)' 
+              }}
               title={currentLang === 'vi' ? 'Mở Bảng điều khiển' : 'Open Dashboard'}
             />
           </div>
         </div>
 
-        {/* Tabs navigation */}
+        {/* Tabs navigation pill container */}
         <div style={{
           display: 'flex',
           borderBottom: '1px solid ' + colors.borderLight,
           background: colors.bgContainer,
-          padding: '0 4px',
+          padding: '6px 8px',
+          gap: 4,
           zIndex: 10
         }}>
           {[
-            { id: 'lookup', label: translate('lookUpTab', currentLang), icon: <Search size={14} /> },
-            { id: 'aichat', label: translate('aiChatTab', currentLang), icon: <MessageSquare size={14} /> },
-            { id: 'vocab', label: translate('vocabTab', currentLang), icon: <BookOpen size={14} /> },
-            { id: 'flashcards', label: translate('flashcardsTab', currentLang), icon: <Layers size={14} /> },
-            { id: 'stats', label: translate('statsTab', currentLang), icon: <BarChart2 size={14} /> },
-            { id: 'settings', label: translate('settingsTab', currentLang), icon: <Settings size={14} /> }
-          ].map(t => (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(t.id as any)}
-              style={{
-                flex: 1,
-                background: 'transparent',
-                border: 'none',
-                borderBottom: activeTab === t.id ? '2px solid #8b5cf6' : '2px solid transparent',
-                color: activeTab === t.id ? '#c084fc' : '#64748b',
-                padding: '10px 2px',
-                fontSize: '11px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 4,
-                transition: 'all 0.15s'
-              }}
-            >
-              {t.icon}
-              {t.label}
-            </button>
-          ))}
+            { id: 'lookup', label: translate('lookUpTab', currentLang), icon: <Search size={13} /> },
+            { id: 'aichat', label: translate('aiChatTab', currentLang), icon: <MessageSquare size={13} /> },
+            { id: 'vocab', label: translate('vocabTab', currentLang), icon: <BookOpen size={13} /> },
+            { id: 'flashcards', label: translate('flashcardsTab', currentLang), icon: <Layers size={13} /> },
+            { id: 'stats', label: translate('statsTab', currentLang), icon: <BarChart2 size={13} /> },
+            { id: 'settings', label: translate('settingsTab', currentLang), icon: <Settings size={13} /> }
+          ].map(t => {
+            const isActive = activeTab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setActiveTab(t.id as any)}
+                style={{
+                  flex: 1,
+                  background: isActive 
+                    ? (isDark ? 'rgba(56, 189, 248, 0.18)' : 'rgba(14, 165, 233, 0.1)')
+                    : 'transparent',
+                  border: 'none',
+                  borderRadius: 8,
+                  color: isActive ? (isDark ? '#38bdf8' : '#0284c7') : colors.textMuted,
+                  padding: '6px 2px',
+                  fontSize: '11px',
+                  fontWeight: isActive ? 700 : 500,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 3,
+                  transition: 'all 0.18s ease'
+                }}
+              >
+                {t.icon}
+                <span style={{ fontSize: '10px', lineHeight: 1.1 }}>{t.label}</span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Tab Content area */}
