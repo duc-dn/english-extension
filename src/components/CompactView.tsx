@@ -13,6 +13,7 @@ import { Input, Button, Tag, Progress, message, ConfigProvider, Modal, theme as 
 import { saveSettings, useSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
 import { PomodoroTimerWidget } from './PomodoroTimerWidget';
+import { GeometricBackground } from './GeometricBackground';
 import { 
   addTodo, 
   deleteTodo, 
@@ -1751,7 +1752,8 @@ export const CompactView: React.FC = () => {
     fontFamily: '"Plus Jakarta Sans", "Inter", sans-serif',
     color: colors.textMain,
     boxSizing: 'border-box',
-    overflow: 'hidden'
+    overflow: 'hidden',
+    position: 'relative',
   } : {
     width: '100%',
     minHeight: '100vh',
@@ -1761,7 +1763,8 @@ export const CompactView: React.FC = () => {
     fontFamily: '"Plus Jakarta Sans", "Inter", sans-serif',
     color: colors.textMain,
     boxSizing: 'border-box',
-    overflow: 'hidden'
+    overflow: 'hidden',
+    position: 'relative',
   };
 
   return (
@@ -1791,8 +1794,12 @@ export const CompactView: React.FC = () => {
       }}
     >
       <div style={containerStyle}>
+        <GeometricBackground isDark={isDark} variant="compact" />
+
         {/* Compact Header */}
         <div style={{
+          position: 'relative',
+          zIndex: 1,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -1965,6 +1972,8 @@ export const CompactView: React.FC = () => {
 
         {/* Tab Content area */}
         <div style={{ 
+          position: 'relative',
+          zIndex: 1,
           flex: 1, 
           padding: activeTab === 'aichat' ? '0' : '14px 16px', 
           background: 'transparent', 

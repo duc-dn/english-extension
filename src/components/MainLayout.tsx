@@ -13,6 +13,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 
 import { DeepSeekProxyWidget } from './DeepSeekProxyWidget';
 import { PomodoroTimerWidget } from './PomodoroTimerWidget';
+import { GeometricBackground } from './GeometricBackground';
 
 const { Content, Sider } = Layout;
 
@@ -466,9 +467,13 @@ export const MainLayout: React.FC = () => {
         </div>
       </Sider>
 
-      <Layout style={{ background: 'transparent' }}>
+      <Layout style={{ background: 'transparent', position: 'relative', overflow: 'hidden' }}>
+        <GeometricBackground isDark={isDark} variant="full" />
+
         {/* Top Header Bar across all admin pages */}
         <div style={{
+          position: 'relative',
+          zIndex: 1,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -513,7 +518,7 @@ export const MainLayout: React.FC = () => {
             <DeepSeekProxyWidget />
           </div>
         </div>
-        <Content style={{ margin: '20px 32px 32px 32px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        <Content style={{ position: 'relative', zIndex: 1, margin: '20px 32px 32px 32px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
           <Outlet />
         </Content>
       </Layout>

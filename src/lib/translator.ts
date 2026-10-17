@@ -1224,10 +1224,14 @@ export interface WritingPolishResult {
 export async function polishWritingWithAI(
   text: string,
   tone: WritingTone = 'professional',
+  customInstructionOrSettings?: string | Partial<Settings>,
   customSettings?: Partial<Settings>
 ): Promise<WritingPolishResult> {
+  const customInstruction = typeof customInstructionOrSettings === 'string' ? customInstructionOrSettings : undefined;
+  const passedSettings = typeof customInstructionOrSettings === 'object' ? customInstructionOrSettings : customSettings;
+
   const currentSettings = await getSettings();
-  const settings = { ...currentSettings, ...customSettings };
+  const settings = { ...currentSettings, ...passedSettings };
   if (!settings.ai_provider || settings.ai_provider === 'none') {
     throw new Error('Chưa cấu hình AI provider (Gemini, DeepSeek, ChatGPT, hoặc Ollama).');
   }
@@ -1239,15 +1243,21 @@ export async function polishWritingWithAI(
     grammar_only: 'Chỉ sửa lỗi ngữ pháp, chính tả, giới từ, mạo từ; tuyệt đối giữ nguyên cấu trúc và ý diễn đạt ban đầu.'
   }[tone];
 
+  const customClause = customInstruction && customInstruction.trim()
+    ? `\n\nĐẶC BIỆT LƯU Ý - YÊU CẦU TÙY CHỈNH TỪ NGƯỜI DÙNG:
+"${customInstruction.trim()}"
+Hãy ưu tiên đáp ứng yêu cầu tùy chỉnh này kết hợp với phong cách đã chọn.`
+    : '';
+
   const prompt = `Bạn là chuyên gia biên tập tiếng Anh bản xứ hàng đầu thế giới.
 Văn bản của người dùng:
 """${text}"""
 
-Phong cách yêu cầu: ${tone} (${toneInstructions})
+Phong cách yêu cầu: ${tone} (${toneInstructions})${customClause}
 
 Nhiệm vụ:
 1. Sửa toàn bộ lỗi chính tả, ngữ pháp, thì động từ, mạo từ (a/an/the), giới từ.
-2. Nâng cấp câu văn cho tự nhiên, mượt mà và đúng chuẩn người bản ngữ theo phong cách "${tone}".
+2. Nâng cấp câu văn cho tự nhiên, mượt mà và đúng chuẩn người bản ngữ theo phong cách "${tone}"${customInstruction?.trim() ? ' và tuân thủ sát sao yêu cầu tùy chỉnh' : ''}.
 3. Liệt kê các điểm sửa đổi cụ thể và lý do giải thích bằng tiếng Việt.
 
 Hãy trả về DUY NHẤT một đối tượng JSON hợp lệ (không kèm bất kỳ văn bản thừa nào ngoài JSON):

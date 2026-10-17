@@ -65,6 +65,7 @@ export const WritingAssistantOverlay: React.FC = () => {
   const [showDetails, setShowDetails] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState('');
 
   // Check setting from chrome sync storage
   useEffect(() => {
@@ -82,7 +83,77 @@ export const WritingAssistantOverlay: React.FC = () => {
     }
   }, []);
 
+  const isWritingTarget = (el: HTMLElement | null): boolean => {
+    if (!el) return false;
+    if (el.closest('#eng-ext-root')) return false;
+
+    // Iframe editor (like Jira Visual, TinyMCE)
+    if (el instanceof HTMLIFrameElement) return true;
+
+    // Rich text / WYSIWYG editors
+    if (el.isContentEditable) return true;
+
+    // Textarea (comments, posts, descriptions)
+    if (el instanceof HTMLTextAreaElement) {
+      return !el.readOnly && !el.disabled;
+    }
+
+    // Single-line inputs: only true writing fields, ignore search/query/login/filter boxes
+    if (el instanceof HTMLInputElement) {
+      if (el.readOnly || el.disabled) return false;
+
+      const type = (el.type || 'text').toLowerCase();
+      // Only standard text inputs
+      if (type !== 'text') return false;
+
+      // Ignore searchbox, combobox, or role="search"
+      const role = (el.getAttribute('role') || '').toLowerCase();
+      if (['searchbox', 'search', 'combobox'].includes(role)) return false;
+
+      // Ignore if inside a search form or search container (YouTube, Google, Amazon, etc.)
+      if (el.closest('form[role="search"], [role="search"], ytd-searchbox, #search, #searchform, .search-container, .search-box')) {
+        return false;
+      }
+
+      // Check name, id, placeholder, aria-label for search keywords
+      const name = (el.name || '').toLowerCase();
+      const id = (el.id || '').toLowerCase();
+      const placeholder = (el.placeholder || '').toLowerCase();
+      const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+      const className = (typeof el.className === 'string' ? el.className : '').toLowerCase();
+
+      const searchTerms = ['search', 'tìm kiếm', 'tim kiem', 'query', 'keyword', 'filter'];
+      if (searchTerms.some(term => 
+        name.includes(term) || 
+        id.includes(term) || 
+        placeholder.includes(term) || 
+        ariaLabel.includes(term) || 
+        className.includes('search')
+      )) {
+        return false;
+      }
+
+      // Ignore credentials, numbers, codes
+      const autocomplete = (el.autocomplete || '').toLowerCase();
+      if (['username', 'current-password', 'new-password', 'one-time-code', 'tel', 'email'].includes(autocomplete)) {
+        return false;
+      }
+
+      return true;
+    }
+
+    return false;
+  };
+
   const getElementText = (el: HTMLElement): string => {
+    if (el instanceof HTMLIFrameElement) {
+      try {
+        const doc = el.contentDocument;
+        return doc?.body?.innerText || doc?.body?.textContent || '';
+      } catch {
+        return '';
+      }
+    }
     if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
       return el.value || '';
     }
@@ -93,6 +164,11 @@ export const WritingAssistantOverlay: React.FC = () => {
   };
 
   const updateFabPosition = (el: HTMLElement) => {
+    if (!isWritingTarget(el)) {
+      setFabPos(null);
+      return;
+    }
+
     const rect = el.getBoundingClientRect();
     if (rect.width < 100 || rect.height < 24) {
       setFabPos(null);
@@ -127,21 +203,24 @@ export const WritingAssistantOverlay: React.FC = () => {
       const target = e.target as HTMLElement | null;
       if (!target) return;
 
-      if (target.closest('#eng-ext-root')) return;
-
-      const isInput = target instanceof HTMLInputElement && target.type !== 'password' && target.type !== 'hidden' && target.type !== 'file';
-      const isTextArea = target instanceof HTMLTextAreaElement;
-      const isEditable = target.isContentEditable;
-
-      if (isInput || isTextArea || isEditable) {
-        setActiveEl(target);
-        updateFabPosition(target);
+      if (!isWritingTarget(target)) {
+        if (target !== activeEl) {
+          setFabPos(null);
+        }
+        return;
       }
+
+      setActiveEl(target);
+      updateFabPosition(target);
     };
 
     const handleInput = (e: Event) => {
       const target = e.target as HTMLElement | null;
       if (target && target === activeEl) {
+        if (!isWritingTarget(target)) {
+          setFabPos(null);
+          return;
+        }
         updateFabPosition(target);
       }
     };
@@ -152,12 +231,45 @@ export const WritingAssistantOverlay: React.FC = () => {
       }
     };
 
+    const checkIframe = (iframe: HTMLIFrameElement) => {
+      try {
+        const doc = iframe.contentDocument;
+        if (!doc || (iframe as any).__engAttached) return;
+        (iframe as any).__engAttached = true;
+
+        const onIframeFocus = () => {
+          setActiveEl(iframe);
+          updateFabPosition(iframe);
+        };
+        const onIframeInput = () => {
+          if (activeEl === iframe) {
+            updateFabPosition(iframe);
+          }
+        };
+
+        doc.addEventListener('focusin', onIframeFocus);
+        doc.addEventListener('input', onIframeInput);
+        doc.addEventListener('keyup', onIframeInput);
+      } catch {
+        // Cross-origin iframe
+      }
+    };
+
+    const attachIframes = () => {
+      document.querySelectorAll('iframe').forEach(checkIframe);
+    };
+
+    attachIframes();
+    const iframeObserver = new MutationObserver(() => attachIframes());
+    iframeObserver.observe(document.body, { childList: true, subtree: true });
+
     document.addEventListener('focusin', handleFocusIn);
     document.addEventListener('input', handleInput);
     window.addEventListener('scroll', handleScrollOrResize, true);
     window.addEventListener('resize', handleScrollOrResize);
 
     return () => {
+      iframeObserver.disconnect();
       document.removeEventListener('focusin', handleFocusIn);
       document.removeEventListener('input', handleInput);
       window.removeEventListener('scroll', handleScrollOrResize, true);
@@ -165,7 +277,7 @@ export const WritingAssistantOverlay: React.FC = () => {
     };
   }, [enabled, activeEl, isOpen]);
 
-  const handlePolish = (selectedTone: WritingTone = tone) => {
+  const handlePolish = (selectedTone: WritingTone = tone, promptText: string = customPrompt) => {
     if (!activeEl) return;
     const text = getElementText(activeEl);
     if (!text.trim()) return;
@@ -182,7 +294,14 @@ export const WritingAssistantOverlay: React.FC = () => {
 
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage(
-        { action: 'POLISH_WRITING', payload: { text, tone: selectedTone } },
+        { 
+          action: 'POLISH_WRITING', 
+          payload: { 
+            text, 
+            tone: selectedTone, 
+            customInstruction: promptText.trim() || undefined 
+          } 
+        },
         (res) => {
           setLoading(false);
           if (chrome.runtime.lastError) {
@@ -203,12 +322,12 @@ export const WritingAssistantOverlay: React.FC = () => {
     e.stopPropagation();
     e.preventDefault();
     setIsOpen(true);
-    handlePolish(tone);
+    handlePolish(tone, customPrompt);
   };
 
   const handleToneChange = (newTone: WritingTone) => {
     setTone(newTone);
-    handlePolish(newTone);
+    handlePolish(newTone, customPrompt);
   };
 
   const handleSpeak = (text: string) => {
@@ -266,6 +385,33 @@ export const WritingAssistantOverlay: React.FC = () => {
           activeEl.innerText = newText;
           activeEl.dispatchEvent(new Event('input', { bubbles: true }));
         }
+      } else if (activeEl instanceof HTMLIFrameElement) {
+        try {
+          const doc = activeEl.contentDocument;
+          if (doc && doc.body) {
+            const body = doc.body;
+            body.focus();
+            let replacedViaExec = false;
+            try {
+              const win = doc.defaultView || window;
+              const selection = win.getSelection();
+              const range = doc.createRange();
+              range.selectNodeContents(body);
+              selection?.removeAllRanges();
+              selection?.addRange(range);
+              replacedViaExec = doc.execCommand('insertText', false, newText);
+            } catch {
+              replacedViaExec = false;
+            }
+
+            if (!replacedViaExec) {
+              body.innerText = newText;
+              body.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          }
+        } catch (err) {
+          console.warn('Replace text in iframe error:', err);
+        }
       }
     } catch (err) {
       console.warn('Replace text error:', err);
@@ -297,6 +443,15 @@ export const WritingAssistantOverlay: React.FC = () => {
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      const isInputActive = document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement;
+      if (isInputActive) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setIsOpen(false);
+        }
+        return;
+      }
+
       if (e.key === 'Escape') {
         e.preventDefault();
         setIsOpen(false);
@@ -318,7 +473,7 @@ export const WritingAssistantOverlay: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, result, tone, isPlayingAudio]);
+  }, [isOpen, result, tone, isPlayingAudio, customPrompt]);
 
   if (!enabled) return null;
 
@@ -359,7 +514,7 @@ export const WritingAssistantOverlay: React.FC = () => {
         }
       `}</style>
 
-      {/* Floating Action Badge on Active Input */}
+      {/* Floating Action Badge on Active Input (Minimal Circular Icon) */}
       {fabPos && !isOpen && (
         <div
           onClick={openPolishModal}
@@ -370,31 +525,25 @@ export const WritingAssistantOverlay: React.FC = () => {
             left: fabPos.x,
             top: fabPos.y,
             zIndex: 2147483646,
+            width: 26,
             height: 26,
-            padding: fabHovered ? '0 10px 0 8px' : '0 6px',
-            borderRadius: 13,
+            borderRadius: '50%',
             background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
             color: '#ffffff',
             cursor: 'pointer',
             animation: 'engFabGlow 2.5s infinite ease-in-out',
             display: 'flex',
             alignItems: 'center',
-            gap: 5,
+            justifyContent: 'center',
             userSelect: 'none',
-            transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-            fontFamily: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif",
-            fontSize: 11,
-            fontWeight: 700,
+            transform: fabHovered ? 'scale(1.12)' : 'scale(1)',
+            transition: 'transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s ease',
             border: '1px solid rgba(255, 255, 255, 0.25)',
+            boxSizing: 'border-box',
           }}
           title="Nâng cấp tiếng Anh với AI (Grammar & Polish)"
         >
           <Sparkles size={13} color="#ffffff" />
-          {fabHovered && (
-            <span style={{ whiteSpace: 'nowrap', letterSpacing: '0.2px' }}>
-              Nâng cấp AI
-            </span>
-          )}
         </div>
       )}
 
@@ -560,6 +709,91 @@ export const WritingAssistantOverlay: React.FC = () => {
             })}
           </div>
 
+          {/* Custom Prompt Input Bar */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: 'rgba(255, 255, 255, 0.04)',
+              border: '1px solid ' + (customPrompt.trim() ? 'rgba(129, 140, 248, 0.5)' : 'rgba(255, 255, 255, 0.1)'),
+              borderRadius: 8,
+              padding: '3px 6px 3px 9px',
+              transition: 'all 0.2s ease',
+              boxShadow: customPrompt.trim() ? '0 0 0 2px rgba(99, 102, 241, 0.2)' : 'none',
+            }}>
+              <Sparkles size={12} color={customPrompt.trim() ? '#818cf8' : '#94a3b8'} style={{ flexShrink: 0 }} />
+              <input
+                type="text"
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handlePolish(tone, customPrompt);
+                  }
+                }}
+                placeholder="Yêu cầu riêng (vd: thêm cảm ơn, deadline, lịch thiệp hơn...)"
+                style={{
+                  flex: 1,
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  color: '#ffffff',
+                  fontSize: 11,
+                  fontFamily: 'inherit',
+                  padding: '4px 0',
+                }}
+              />
+              {customPrompt && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomPrompt('');
+                    handlePolish(tone, '');
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#94a3b8',
+                    cursor: 'pointer',
+                    padding: 2,
+                    display: 'flex',
+                    borderRadius: 4,
+                  }}
+                  title="Xóa yêu cầu riêng"
+                >
+                  <X size={12} />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => handlePolish(tone, customPrompt)}
+                disabled={loading}
+                style={{
+                  background: customPrompt.trim()
+                    ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'
+                    : 'rgba(255, 255, 255, 0.08)',
+                  border: 'none',
+                  color: '#ffffff',
+                  borderRadius: 5,
+                  padding: '3px 7px',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 3,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  transition: 'all 0.15s ease',
+                }}
+                title="Gửi prompt tùy chỉnh (Enter)"
+              >
+                <ArrowRight size={11} />
+              </button>
+            </div>
+          </div>
+
           {/* Body Content */}
           {loading ? (
             <div style={{ 
@@ -633,7 +867,11 @@ export const WritingAssistantOverlay: React.FC = () => {
                       border: `1px solid ${showOriginal ? 'rgba(251, 191, 36, 0.3)' : currentToneObj.accent + '35'}`,
                       letterSpacing: '0.2px'
                     }}>
-                      {showOriginal ? '📝 Câu gốc ban đầu' : `✦ Chuẩn ${currentToneObj.label}`}
+                      {showOriginal 
+                        ? '📝 Câu gốc ban đầu' 
+                        : customPrompt.trim() 
+                          ? `✦ ${currentToneObj.label} • Theo prompt riêng` 
+                          : `✦ Chuẩn ${currentToneObj.label}`}
                     </span>
                   </div>
 
@@ -700,7 +938,7 @@ export const WritingAssistantOverlay: React.FC = () => {
 
                     {/* Re-roll button */}
                     <button
-                      onClick={() => handlePolish(tone)}
+                      onClick={() => handlePolish(tone, customPrompt)}
                       style={{
                         background: 'rgba(255, 255, 255, 0.06)',
                         border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -731,84 +969,86 @@ export const WritingAssistantOverlay: React.FC = () => {
                 }}>
                   {showOriginal ? result.originalText : result.improvedText}
                 </div>
-              </div>
 
-              {/* Action Buttons: Apply & Copy */}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  onClick={handleReplaceText}
-                  style={{
-                    flex: 1,
-                    background: replaced 
-                      ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' 
-                      : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                    color: '#ffffff',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: 9,
-                    padding: '9px 14px',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                    boxShadow: replaced 
-                      ? '0 4px 14px rgba(16, 185, 129, 0.45)' 
-                      : '0 4px 16px rgba(99, 102, 241, 0.4)',
-                    transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                    e.currentTarget.style.filter = 'brightness(1.08)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.filter = 'brightness(1)';
-                  }}
-                  title="Thay thế nội dung cũ trong ô nhập (Phím Enter)"
-                >
-                  <Check size={14} strokeWidth={2.5} />
-                  <span>{replaced ? 'Đã áp dụng!' : 'Áp dụng vào ô nhập'}</span>
-                  <span style={{ 
-                    background: 'rgba(255, 255, 255, 0.2)', 
-                    padding: '1px 5px', 
-                    borderRadius: 4, 
-                    fontSize: 9.5, 
-                    fontWeight: 800,
-                    marginLeft: 2
-                  }}>
-                    ↵
-                  </span>
-                </button>
+                {/* Compact Action Toolbar directly inside the edited text card */}
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'flex-end', 
+                  gap: 6,
+                  marginTop: 10,
+                  paddingTop: 8,
+                  borderTop: '1px solid rgba(255, 255, 255, 0.07)'
+                }}>
+                  {/* Copy Button (Icon only) */}
+                  <button
+                    onClick={handleCopy}
+                    style={{
+                      background: copied ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.06)',
+                      color: copied ? '#34d399' : '#cbd5e1',
+                      border: '1px solid ' + (copied ? 'rgba(16, 185, 129, 0.4)' : 'rgba(255, 255, 255, 0.12)'),
+                      borderRadius: 6,
+                      padding: '5px 8px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.18s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = copied ? 'rgba(16, 185, 129, 0.25)' : 'rgba(255, 255, 255, 0.12)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = copied ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.06)';
+                    }}
+                    title={copied ? 'Đã sao chép vào clipboard!' : 'Sao chép nội dung (⌘C / Ctrl+C)'}
+                  >
+                    {copied ? <Check size={13} color="#34d399" strokeWidth={2.5} /> : <Copy size={13} />}
+                  </button>
 
-                <button
-                  onClick={handleCopy}
-                  style={{
-                    background: copied ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.08)',
-                    color: copied ? '#34d399' : '#ffffff',
-                    border: '1px solid ' + (copied ? 'rgba(16, 185, 129, 0.4)' : 'rgba(255, 255, 255, 0.15)'),
-                    borderRadius: 9,
-                    padding: '9px 12px',
-                    fontSize: 11.5,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 5,
-                    transition: 'all 0.2s ease',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = copied ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.12)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = copied ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.08)';
-                  }}
-                  title="Sao chép nội dung (⌘C / Ctrl+C)"
-                >
-                  {copied ? <Check size={13} color="#34d399" strokeWidth={2.5} /> : <Copy size={13} />}
-                  <span>{copied ? 'Đã chép' : 'Chép'}</span>
-                </button>
+                  {/* Apply Button (Icon only with enter hint) */}
+                  <button
+                    onClick={handleReplaceText}
+                    style={{
+                      background: replaced 
+                        ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' 
+                        : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                      color: '#ffffff',
+                      border: '1px solid rgba(255, 255, 255, 0.25)',
+                      borderRadius: 6,
+                      padding: '5px 9px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4,
+                      boxShadow: replaced 
+                        ? '0 2px 8px rgba(16, 185, 129, 0.4)' 
+                        : '0 2px 10px rgba(99, 102, 241, 0.35)',
+                      transition: 'all 0.18s cubic-bezier(0.16, 1, 0.3, 1)',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                      e.currentTarget.style.filter = 'brightness(1.08)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.filter = 'brightness(1)';
+                    }}
+                    title={replaced ? 'Đã áp dụng vào ô nhập!' : 'Áp dụng vào ô nhập (Phím Enter)'}
+                  >
+                    <Check size={13} strokeWidth={2.5} />
+                    <span style={{ 
+                      background: 'rgba(255, 255, 255, 0.2)', 
+                      padding: '0 3.5px', 
+                      borderRadius: 3, 
+                      fontSize: 9, 
+                      fontWeight: 800,
+                    }}>
+                      ↵
+                    </span>
+                  </button>
+                </div>
               </div>
 
               {/* Collapsible Details: Diffs & Explanations */}

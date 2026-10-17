@@ -742,5 +742,41 @@ describe('testAIConnection', () => {
       expect(res.tone).toBe('professional');
       expect(res.corrections).toHaveLength(1);
     });
+
+    it('should include custom instruction when provided', async () => {
+      await saveSettings({
+        ai_provider: 'deepseek',
+        deepseek_auth_type: 'local_proxy',
+        deepseek_proxy_url: 'http://127.0.0.1:9655'
+      });
+
+      const mockPolishResponse = JSON.stringify({
+        improvedText: 'Could you please review the attached report by 3 PM? Thank you.',
+        originalText: 'could you please check report',
+        tone: 'professional',
+        corrections: [],
+        explanation: 'Đã bổ sung deadline 3 PM theo yêu cầu riêng.'
+      });
+
+      let capturedBody: any = null;
+      (globalThis.fetch as any).mockImplementation(async (_url: string, opts: any) => {
+        capturedBody = JSON.parse(opts.body);
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            choices: [{ message: { content: mockPolishResponse } }]
+          })
+        };
+      });
+
+      const res = await polishWritingWithAI(
+        'could you please check report',
+        'professional',
+        'thêm deadline 3h chiều và lời cảm ơn'
+      );
+
+      expect(res.improvedText).toContain('by 3 PM');
+      expect(capturedBody.messages[0].content).toContain('thêm deadline 3h chiều và lời cảm ơn');
+    });
   });
 });

@@ -286,8 +286,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'POLISH_WRITING') {
-    const { text, tone } = request.payload;
-    polishWritingWithAI(text, tone)
+    const { text, tone, customInstruction } = request.payload;
+    polishWritingWithAI(text, tone, customInstruction)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;

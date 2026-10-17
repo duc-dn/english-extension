@@ -37,6 +37,7 @@ import { getAIDailyInsight, type AIDailyInsight } from '../lib/translator';
 import { getTodayPomodoroStats } from '../lib/pomodoro';
 import { playAudio, playTaskCompleteChime } from '../lib/audio';
 import { addTodo, toggleTodoStatus, isDateToday, isDateOverdue, getTodayDateString } from '../lib/todo';
+import { GeometricBackground } from '../components/GeometricBackground';
 
 const { Title } = Typography;
 
@@ -314,6 +315,8 @@ export const Dashboard: React.FC = () => {
       <div 
         className="bento-card"
         style={{
+          position: 'relative',
+          overflow: 'hidden',
           padding: '28px 32px',
           background: isDark
             ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.95) 100%)'
@@ -322,7 +325,9 @@ export const Dashboard: React.FC = () => {
           boxShadow: isDark ? '0 12px 36px rgba(0, 0, 0, 0.45)' : '0 6px 24px rgba(15, 23, 42, 0.05)',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 20 }}>
+        <GeometricBackground isDark={isDark} variant="card" />
+
+        <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 20 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ 
