@@ -46,4 +46,34 @@ describe('English Extension Settings (chrome.storage mock)', () => {
     // New settings should be applied
     expect(settings.theme).toBe('light');
   });
+
+  it('should correctly evaluate isAIConfigured for various providers', async () => {
+    const { isAIConfigured } = await import('./settings');
+    expect(isAIConfigured(null)).toBe(false);
+    expect(isAIConfigured({ ai_provider: 'none' })).toBe(false);
+
+    // Gemini
+    expect(isAIConfigured({ ai_provider: 'gemini', gemini_api_key: '' })).toBe(false);
+    expect(isAIConfigured({ ai_provider: 'gemini', gemini_api_key: '   ' })).toBe(false);
+    expect(isAIConfigured({ ai_provider: 'gemini', gemini_api_key: 'AIzaSy123' })).toBe(true);
+
+    // DeepSeek
+    expect(isAIConfigured({ ai_provider: 'deepseek', deepseek_auth_type: 'local_proxy', deepseek_proxy_url: 'http://127.0.0.1:9655' })).toBe(true);
+    expect(isAIConfigured({ ai_provider: 'deepseek', deepseek_auth_type: 'api_key', deepseek_api_key: 'sk-123' })).toBe(true);
+    expect(isAIConfigured({ ai_provider: 'deepseek', deepseek_auth_type: 'api_key', deepseek_api_key: '' })).toBe(false);
+    expect(isAIConfigured({ ai_provider: 'deepseek', deepseek_auth_type: 'web_token', deepseek_web_token: 'token123' })).toBe(true);
+
+    // OpenAI
+    expect(isAIConfigured({ ai_provider: 'openai', openai_auth_type: 'chatgpt_web' })).toBe(true);
+    expect(isAIConfigured({ ai_provider: 'openai', openai_auth_type: 'api_key', openai_api_key: 'sk-proj123' })).toBe(true);
+    expect(isAIConfigured({ ai_provider: 'openai', openai_auth_type: 'api_key', openai_api_key: '' })).toBe(false);
+
+    // ChatGPT Web
+    expect(isAIConfigured({ ai_provider: 'chatgpt_web' })).toBe(true);
+
+    // Ollama
+    expect(isAIConfigured({ ai_provider: 'ollama', ollama_url: 'http://localhost:11434' })).toBe(true);
+    expect(isAIConfigured({ ai_provider: 'ollama', ollama_url: '' })).toBe(false);
+  });
 });
+

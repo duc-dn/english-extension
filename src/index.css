@@ -102,7 +102,8 @@ body.dark-mode {
 body, html {
   margin: 0;
   padding: 0;
-  font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  height: 100%;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Be Vietnam Pro', 'Plus Jakarta Sans', sans-serif;
   background-color: var(--bg-app);
   background-image: 
     linear-gradient(to right, rgba(2, 132, 199, 0.04) 1px, transparent 1px),
@@ -775,10 +776,27 @@ body.sidepanel-mode {
   padding: 0 !important;
 }
 
-body.sidepanel-mode #root {
+body.sidepanel-mode #root,
+body:has(.compact-view-container) #root {
   width: 100% !important;
   height: 100% !important;
+  max-height: 100vh !important;
+  min-height: 0 !important;
   overflow: hidden !important;
+}
+
+.compact-view-container {
+  height: 100vh;
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+body.popup-mode .compact-view-container {
+  height: 100% !important;
+  max-height: 100% !important;
 }
 
 /* AI Chat typing indicator bounce animation */
@@ -796,7 +814,7 @@ body.sidepanel-mode #root {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background-color: #8b5cf6;
+  background-color: #0284c7;
   animation: chatDotBounce 1.4s infinite ease-in-out both;
 }
 
@@ -891,6 +909,162 @@ body.dark-mode .pomodoro-quote-card {
   background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.6) 100%) !important;
   border: 1px solid rgba(51, 65, 85, 0.6) !important;
 }
+
+/* ==========================================================================
+   AI Chat Markdown Typography & Elements
+   ========================================================================== */
+.chat-markdown {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: inherit;
+  word-break: break-word;
+}
+
+.chat-markdown p {
+  margin: 0 0 10px 0;
+}
+
+.chat-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4 {
+  font-weight: 700;
+  line-height: 1.35;
+  margin: 14px 0 8px 0;
+  color: #0284c7;
+}
+
+body.dark-mode .chat-markdown h1,
+body.dark-mode .chat-markdown h2,
+body.dark-mode .chat-markdown h3,
+body.dark-mode .chat-markdown h4 {
+  color: #38bdf8;
+}
+
+.chat-markdown h1 { font-size: 16px; border-bottom: 1px solid rgba(2, 132, 199, 0.2); padding-bottom: 4px; }
+.chat-markdown h2 { font-size: 15px; }
+.chat-markdown h3 { font-size: 14px; }
+.chat-markdown h4 { font-size: 13.5px; }
+
+.chat-markdown ul,
+.chat-markdown ol {
+  margin: 4px 0 10px 18px;
+  padding: 0;
+}
+
+.chat-markdown li {
+  margin-bottom: 4px;
+  line-height: 1.55;
+}
+
+.chat-markdown blockquote {
+  margin: 8px 0 12px 0;
+  padding: 8px 12px;
+  border-left: 3.5px solid #0284c7;
+  background: rgba(2, 132, 199, 0.08);
+  border-radius: 0 8px 8px 0;
+  font-style: italic;
+}
+
+body.dark-mode .chat-markdown blockquote {
+  border-left-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+}
+
+.chat-markdown blockquote p {
+  margin: 0;
+}
+
+.chat-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0 14px 0;
+  font-size: 12.5px;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.chat-markdown th,
+.chat-markdown td {
+  padding: 7px 10px;
+  border: 1px solid #cbd5e1;
+  text-align: left;
+}
+
+body.dark-mode .chat-markdown th,
+body.dark-mode .chat-markdown td {
+  border-color: #334155;
+}
+
+.chat-markdown th {
+  background: #f0f9ff;
+  font-weight: 700;
+  color: #0369a1;
+}
+
+body.dark-mode .chat-markdown th {
+  background: #1e293b;
+  color: #38bdf8;
+}
+
+.chat-markdown tr:nth-child(even) td {
+  background: rgba(240, 249, 255, 0.5);
+}
+
+body.dark-mode .chat-markdown tr:nth-child(even) td {
+  background: rgba(30, 41, 59, 0.4);
+}
+
+.chat-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(2, 132, 199, 0.1);
+  color: #0284c7;
+}
+
+body.dark-mode .chat-markdown code {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+}
+
+.chat-markdown pre {
+  margin: 8px 0 12px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #f8fafc;
+  overflow-x: auto;
+  font-size: 12px;
+}
+
+.chat-markdown pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font-size: 12px;
+}
+
+.chat-markdown strong {
+  font-weight: 700;
+  color: inherit;
+}
+
+.chat-markdown a {
+  color: #0284c7;
+  text-decoration: underline;
+}
+
+body.dark-mode .chat-markdown a {
+  color: #38bdf8;
+}
+
 
 
 

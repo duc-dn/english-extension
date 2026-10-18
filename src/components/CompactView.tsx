@@ -5,12 +5,13 @@ import {
   Search, BookOpen, Layers, BarChart2, Settings, 
   Volume2, Check, Trash2, Globe, Moon, Sun, 
   Sparkles, XCircle, ChevronRight, Plus, MessageSquare, ExternalLink,
-  CheckSquare, Square, CheckCircle2, Calendar
+  CheckSquare, Square, CheckCircle2, Calendar, Image as LucideImage,
+  ChevronUp, ChevronDown, Copy
 } from 'lucide-react';
-import { fetchBasicMeaning, translateSentence, translateSentenceWithAI, summarizeSentence, explainWord, sendChatMessage, extractGrammarNote } from '../lib/translator';
-import type { ChatHistoryItem } from '../lib/translator';
+import { marked } from 'marked';
+import { fetchBasicMeaning, translateSentence, translateSentenceWithAI, summarizeSentence, explainWord, sendChatMessage, extractGrammarNote, type ChatHistoryItem } from '../lib/translator';
 import { Input, Button, Tag, Progress, message, ConfigProvider, Modal, theme as antdTheme, Select, Switch } from 'antd';
-import { saveSettings, useSettings } from '../lib/settings';
+import { saveSettings, useSettings, isAIConfigured, getAIProviderLabel } from '../lib/settings';
 import { translate } from '../lib/localization';
 import { PomodoroTimerWidget } from './PomodoroTimerWidget';
 import { GeometricBackground } from './GeometricBackground';
@@ -25,8 +26,63 @@ import {
 } from '../lib/todo';
 import { playTaskCompleteChime } from '../lib/audio';
 
+marked.setOptions({
+  gfm: true,
+  breaks: true,
+});
+
+const renderMarkdown = (text: string): string => {
+  try {
+    return marked.parse(text, { async: false }) as string;
+  } catch (e) {
+    return text;
+  }
+};
+
+const optimizeImageForAI = (file: File): Promise<string> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      if (!dataUrl) return resolve('');
+      const img = new Image();
+      img.onload = () => {
+        const MAX_DIM = 1600;
+        let { width, height } = img;
+        if (width > MAX_DIM || height > MAX_DIM) {
+          if (width > height) {
+            height = Math.round((height * MAX_DIM) / width);
+            width = MAX_DIM;
+          } else {
+            width = Math.round((width * MAX_DIM) / height);
+            height = MAX_DIM;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.88));
+        } else {
+          resolve(dataUrl);
+        }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+};
+
 export const CompactView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'lookup' | 'vocab' | 'flashcards' | 'stats' | 'settings' | 'aichat' | 'todos'>('lookup');
+  const activeTabRef = useRef(activeTab);
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
   const [isPopup, setIsPopup] = useState(false);
   
   // Todo states in CompactView
@@ -60,8 +116,13 @@ export const CompactView: React.FC = () => {
   const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatImage, setChatImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const [savingGrammarIdx, setSavingGrammarIdx] = useState<number | null>(null);
+  const [copiedId, setCopiedId] = useState<string | number | null>(null);
+  const [isHeaderHidden, setIsHeaderHidden] = useState(false);
+  const lastScrollTopRef = useRef(0);
 
   // Vocabulary search & filter states
   const [vocabSearch, setVocabSearch] = useState('');
@@ -74,11 +135,7 @@ export const CompactView: React.FC = () => {
   const themeMode = settings.theme || 'light';
   const isSystemDark = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   const isDark = themeMode === 'dark' || (themeMode === 'system' && isSystemDark);
-  const isAiConfigured = 
-    (settings.ai_provider === 'gemini' && !!settings.gemini_api_key) ||
-    (settings.ai_provider === 'openai' && !!settings.openai_api_key) ||
-    (settings.ai_provider === 'chatgpt_web') ||
-    (settings.ai_provider === 'ollama' && !!settings.ollama_url);
+  const isAiConfigured = isAIConfigured(settings);
 
   const colors = {
     bgBase: isDark ? '#0b0f19' : '#f8fafc',
@@ -92,7 +149,14 @@ export const CompactView: React.FC = () => {
   };
 
   // Load IndexedDB words
-  const words = useLiveQuery(() => db.words.toArray()) || [];
+  const words = useLiveQuery(async () => {
+    const list = await db.words.toArray();
+    return list.sort((a, b) => {
+      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return timeB - timeA;
+    });
+  }) || [];
 
   // Detect popup mode and sync HTML body classes for dark mode
   useEffect(() => {
@@ -122,45 +186,48 @@ export const CompactView: React.FC = () => {
       chrome.storage.local.get(['selectedParagraph', 'shiftSelectedText'], (res: any) => {
         if (res) {
           if (res.selectedParagraph && typeof res.selectedParagraph === 'string') {
-            setSelectedParagraph(res.selectedParagraph);
-            setAiResult('');
-            setAiMode(null);
-            setQaQuery('');
-            setQaResult('');
-            setActiveTab('lookup');
+            if (activeTabRef.current === 'lookup') {
+              setSelectedParagraph(res.selectedParagraph);
+              setAiResult('');
+              setAiMode(null);
+              setQaQuery('');
+              setQaResult('');
+            }
           } else if (res.shiftSelectedText && typeof res.shiftSelectedText === 'string') {
             const text = res.shiftSelectedText;
             const wordCount = text.split(/\s+/).filter(Boolean).length;
             if (wordCount <= 5) {
               setManualQuery(text);
-              setActiveTab('lookup');
-              setManualLoading(true);
-              const isPhrase = wordCount > 1;
-              if (isPhrase) {
-                translateSentence(text)
-                  .then(translation => {
-                    setManualResult({
-                      word: text,
-                      vietnameseMeaning: translation,
-                      phonetic: '',
-                      meanings: []
-                    });
-                  })
-                  .catch(err => console.error(err))
-                  .finally(() => setManualLoading(false));
-              } else {
-                fetchBasicMeaning(text)
-                  .then(r => setManualResult(r))
-                  .catch(err => console.error(err))
-                  .finally(() => setManualLoading(false));
+              if (activeTabRef.current === 'lookup') {
+                setManualLoading(true);
+                const isPhrase = wordCount > 1;
+                if (isPhrase) {
+                  translateSentence(text)
+                    .then(translation => {
+                      setManualResult({
+                        word: text,
+                        vietnameseMeaning: translation,
+                        phonetic: '',
+                        meanings: []
+                      });
+                    })
+                    .catch(err => console.error(err))
+                    .finally(() => setManualLoading(false));
+                } else {
+                  fetchBasicMeaning(text)
+                    .then(r => setManualResult(r))
+                    .catch(err => console.error(err))
+                    .finally(() => setManualLoading(false));
+                }
               }
             } else {
-              setSelectedParagraph(text);
-              setAiResult('');
-              setAiMode(null);
-              setQaQuery('');
-              setQaResult('');
-              setActiveTab('lookup');
+              if (activeTabRef.current === 'lookup') {
+                setSelectedParagraph(text);
+                setAiResult('');
+                setAiMode(null);
+                setQaQuery('');
+                setQaResult('');
+              }
             }
           }
         }
@@ -170,17 +237,25 @@ export const CompactView: React.FC = () => {
       const listener = (changes: any, area: string) => {
         if (area === 'local') {
           if (changes.selectedParagraph) {
-            setSelectedParagraph(changes.selectedParagraph.newValue || '');
-            setAiResult('');
-            setAiMode(null);
-            setQaQuery('');
-            setQaResult('');
-            setActiveTab('lookup');
+            const newParagraph = changes.selectedParagraph.newValue || '';
+            if (activeTabRef.current === 'lookup') {
+              setSelectedParagraph(newParagraph);
+              setAiResult('');
+              setAiMode(null);
+              setQaQuery('');
+              setQaResult('');
+            }
           }
           
           if (changes.shiftSelectedText) {
             const text = changes.shiftSelectedText.newValue || '';
             if (text) {
+              // Only perform active lookup updates when user is explicitly on 'lookup' tab
+              if (activeTabRef.current !== 'lookup') {
+                return;
+              }
+
+              // 3. User is already on 'lookup' tab: perform active lookup tab updates
               const wordCount = text.split(/\s+/).filter(Boolean).length;
               if (wordCount <= 5) {
                 // Word or short phrase lookup
@@ -189,7 +264,6 @@ export const CompactView: React.FC = () => {
                 setIsManualSaved(false);
                 setWordExplanation('');
                 setManualLoading(true);
-                setActiveTab('lookup');
                 
                 const isPhrase = wordCount > 1;
                 if (isPhrase) {
@@ -227,7 +301,6 @@ export const CompactView: React.FC = () => {
                 setAiMode(null);
                 setQaQuery('');
                 setQaResult('');
-                setActiveTab('lookup');
               }
             }
           }
@@ -448,23 +521,95 @@ export const CompactView: React.FC = () => {
     }
   }, [chatHistory, chatLoading]);
 
+  // Reset header hidden state if active tab is not aichat
+  useEffect(() => {
+    if (activeTab !== 'aichat') {
+      setIsHeaderHidden(false);
+    }
+  }, [activeTab]);
+
+  const handleChatScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (activeTab !== 'aichat') return;
+    const currentScrollTop = e.currentTarget.scrollTop;
+    const scrollDiff = currentScrollTop - lastScrollTopRef.current;
+
+    // Near the top: always show header
+    if (currentScrollTop <= 25) {
+      setIsHeaderHidden(false);
+      lastScrollTopRef.current = currentScrollTop;
+      return;
+    }
+
+    // Scrolling down by more than 10px -> hide header
+    if (scrollDiff > 10 && currentScrollTop > 45) {
+      setIsHeaderHidden(true);
+    } 
+    // Scrolling up by more than 8px -> show header
+    else if (scrollDiff < -8) {
+      setIsHeaderHidden(false);
+    }
+
+    lastScrollTopRef.current = currentScrollTop;
+  };
+
+  const handleChatPaste = async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.indexOf('image') !== -1) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) continue;
+        const optimized = await optimizeImageForAI(file);
+        if (optimized) {
+          setChatImage(optimized);
+          message.success(currentLang === 'vi' ? 'Đã đính kèm ảnh từ clipboard! 📸' : 'Image attached from clipboard! 📸');
+        }
+        break;
+      }
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const optimized = await optimizeImageForAI(file);
+    if (optimized) {
+      setChatImage(optimized);
+      message.success(currentLang === 'vi' ? 'Đã đính kèm ảnh! 📸' : 'Image attached! 📸');
+    }
+    e.target.value = '';
+  };
+
   const handleSendChat = async () => {
-    if (!chatInput.trim() || chatLoading) return;
+    if ((!chatInput.trim() && !chatImage) || chatLoading) return;
     if (!isAiConfigured) {
-      message.warning(translate('aiRedirecting', currentLang));
-      setTimeout(() => openFullPageTab('settings'), 800);
+      message.warning(currentLang === 'vi' 
+        ? 'AI chưa được cấu hình. Đang chuyển hướng đến trang Cài đặt...' 
+        : translate('aiRedirecting', currentLang));
+      setTimeout(() => openFullPageTab('settings'), 600);
       return;
     }
 
     const userMsg = chatInput.trim();
+    const userImg = chatImage;
     setChatInput('');
+    setChatImage(null);
     setChatLoading(true);
 
-    const newHistory: ChatHistoryItem[] = [...chatHistory, { sender: 'user', text: userMsg }];
+    const newHistory: ChatHistoryItem[] = [
+      ...chatHistory, 
+      { 
+        sender: 'user', 
+        text: userMsg || (currentLang === 'vi' ? 'Hãy phân tích và giải thích hình ảnh này giúp tôi.' : 'Please analyze and explain this image for me.'),
+        image: userImg || undefined 
+      }
+    ];
     setChatHistory(newHistory);
 
     try {
-      const response = await sendChatMessage(selectedParagraph, newHistory);
+      const response = await sendChatMessage('', newHistory);
       setChatHistory([...newHistory, { sender: 'ai', text: response }]);
     } catch (err) {
       message.error(currentLang === 'vi' ? 'Không thể gửi tin nhắn' : 'Failed to send message');
@@ -497,89 +642,43 @@ export const CompactView: React.FC = () => {
     }
   };
 
-  const renderFormattedText = (text: string) => {
-    const lines = text.split('\n');
-    const elements: React.ReactNode[] = [];
-    let currentList: React.ReactNode[] = [];
-    let isInsideList = false;
-    let currentListType: 'bullet' | 'numbered' | null = null;
+  const handleCopyText = (text: string, id?: string | number) => {
+    if (!text) return;
+    const onSuccess = () => {
+      message.success(translate('copiedText', currentLang));
+      if (id !== undefined) {
+        setCopiedId(id);
+        setTimeout(() => setCopiedId(null), 2000);
+      }
+    };
 
-    const parseInlineStyles = (lineText: string) => {
-      const parts = lineText.split('**');
-      return parts.map((part, idx) => {
-        if (idx % 2 === 1) {
-          return <strong key={idx} style={{ color: colors.textMain, fontWeight: 700 }}>{part}</strong>;
-        }
-        return part;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(onSuccess).catch(() => {
+        fallbackCopy(text, onSuccess);
       });
-    };
-
-    const flushList = (key: number) => {
-      if (currentList.length > 0) {
-        if (currentListType === 'bullet') {
-          elements.push(
-            <ul key={`list-${key}`} style={{ margin: '4px 0 10px 18px', padding: 0, listStyleType: 'disc', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {currentList}
-            </ul>
-          );
-        } else {
-          elements.push(
-            <ol key={`list-${key}`} style={{ margin: '4px 0 10px 18px', padding: 0, listStyleType: 'decimal', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {currentList}
-            </ol>
-          );
-        }
-        currentList = [];
-      }
-      isInsideList = false;
-      currentListType = null;
-    };
-
-    lines.forEach((line, index) => {
-      const trimmed = line.trim();
-      if (!trimmed) {
-        flushList(index);
-        return;
-      }
-
-      const bulletMatch = trimmed.match(/^[*•-]\s+(.*)$/);
-      const numberedMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
-
-      if (bulletMatch) {
-        if (isInsideList && currentListType !== 'bullet') {
-          flushList(index);
-        }
-        isInsideList = true;
-        currentListType = 'bullet';
-        currentList.push(
-          <li key={index} style={{ fontSize: '13px', color: colors.textMuted, lineHeight: '1.5' }}>
-            {parseInlineStyles(bulletMatch[1])}
-          </li>
-        );
-      } else if (numberedMatch) {
-        if (isInsideList && currentListType !== 'numbered') {
-          flushList(index);
-        }
-        isInsideList = true;
-        currentListType = 'numbered';
-        currentList.push(
-          <li key={index} style={{ fontSize: '13px', color: colors.textMuted, lineHeight: '1.5' }}>
-            {parseInlineStyles(numberedMatch[2])}
-          </li>
-        );
-      } else {
-        flushList(index);
-        elements.push(
-          <p key={index} style={{ margin: '0 0 10px 0', fontSize: '13px', color: colors.textMuted, lineHeight: '1.5' }}>
-            {parseInlineStyles(trimmed)}
-          </p>
-        );
-      }
-    });
-
-    flushList(lines.length);
-    return <div style={{ wordBreak: 'break-word' }}>{elements}</div>;
+    } else {
+      fallbackCopy(text, onSuccess);
+    }
   };
+
+  const fallbackCopy = (text: string, cb: () => void) => {
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-9999px';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      cb();
+    } catch (e) {
+      message.error(currentLang === 'vi' ? 'Không thể sao chép' : 'Failed to copy');
+    }
+  };
+
+
 
 
   const allTags = React.useMemo(() => {
@@ -601,6 +700,11 @@ export const CompactView: React.FC = () => {
     .filter(w => {
       if (!vocabSelectedTag) return true;
       return (w.tags || []).includes(vocabSelectedTag);
+    })
+    .sort((a, b) => {
+      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return timeB - timeA;
     });
 
   // Calculate statistics
@@ -927,9 +1031,30 @@ export const CompactView: React.FC = () => {
 
               {aiResult && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: colors.bgContainer, border: '1px solid ' + colors.border, padding: 14, borderRadius: 12, marginTop: 4, animation: 'fadeIn 0.3s' }}>
-                  <span style={{ fontSize: '10px', fontWeight: 800, color: aiMode === 'translation' ? '#c084fc' : '#2dd4bf', letterSpacing: '0.5px' }}>
-                    {aiMode === 'translation' ? translate('translationResult', currentLang) : translate('summaryResult', currentLang)}
-                  </span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '10px', fontWeight: 800, color: aiMode === 'translation' ? '#c084fc' : '#2dd4bf', letterSpacing: '0.5px' }}>
+                      {aiMode === 'translation' ? translate('translationResult', currentLang) : translate('summaryResult', currentLang)}
+                    </span>
+                    <Button
+                      type="text"
+                      size="small"
+                      onClick={() => handleCopyText(aiResult, 'aiResult')}
+                      icon={copiedId === 'aiResult' ? <Check size={11} color="#10b981" /> : <Copy size={11} color={colors.textMuted} />}
+                      style={{ 
+                        fontSize: '11px', 
+                        height: 22, 
+                        padding: '0 8px', 
+                        borderRadius: 6,
+                        background: copiedId === 'aiResult' ? (isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5') : 'transparent',
+                        color: copiedId === 'aiResult' ? '#10b981' : colors.textMuted, 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 4 
+                      }}
+                    >
+                      {copiedId === 'aiResult' ? (currentLang === 'vi' ? 'Đã sao chép' : 'Copied') : translate('copyBtn', currentLang)}
+                    </Button>
+                  </div>
                   <p style={{ margin: 0, fontSize: '13px', color: colors.textMain, lineHeight: '1.5', whiteSpace: 'pre-wrap', fontWeight: 400 }}>
                     {aiResult}
                   </p>
@@ -984,9 +1109,30 @@ export const CompactView: React.FC = () => {
 
                 {qaResult && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: colors.bgLight, border: '1px solid ' + colors.border, padding: 12, borderRadius: 10, marginTop: 4, animation: 'fadeIn 0.3s' }}>
-                    <span style={{ fontSize: '10px', fontWeight: 800, color: '#34d399', letterSpacing: '0.5px' }}>
-                      {translate('qaResultTitle', currentLang)}
-                    </span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '10px', fontWeight: 800, color: '#34d399', letterSpacing: '0.5px' }}>
+                        {translate('qaResultTitle', currentLang)}
+                      </span>
+                      <Button
+                        type="text"
+                        size="small"
+                        onClick={() => handleCopyText(qaResult, 'qaResult')}
+                        icon={copiedId === 'qaResult' ? <Check size={11} color="#10b981" /> : <Copy size={11} color={colors.textMuted} />}
+                        style={{ 
+                          fontSize: '11px', 
+                          height: 22, 
+                          padding: '0 8px', 
+                          borderRadius: 6,
+                          background: copiedId === 'qaResult' ? (isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5') : 'transparent',
+                          color: copiedId === 'qaResult' ? '#10b981' : colors.textMuted, 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: 4 
+                        }}
+                      >
+                        {copiedId === 'qaResult' ? (currentLang === 'vi' ? 'Đã sao chép' : 'Copied') : translate('copyBtn', currentLang)}
+                      </Button>
+                    </div>
                     <p style={{ margin: 0, fontSize: '12.5px', color: colors.textMain, lineHeight: '1.5', whiteSpace: 'pre-wrap', fontWeight: 500 }}>
                       {qaResult}
                     </p>
@@ -1282,20 +1428,30 @@ export const CompactView: React.FC = () => {
             {/* Word List */}
             <div style={{ maxHeight: '240px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 4 }}>
               {filteredWords.length > 0 ? (
-                filteredWords.map(word => (
-                  <div key={word.id} style={{ background: colors.bgContainer, border: '1px solid ' + colors.border, padding: '10px 12px', borderRadius: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: word.status === 'mastered' ? '#10b981' : '#6366f1' }} />
-                        <strong style={{ fontSize: '13px', color: colors.textMain, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600 }}>
-                          {word.word}
-                        </strong>
-                        <span style={{ fontSize: '10px', color: '#8b5cf6' }}>{word.phonetic}</span>
+                filteredWords.map(word => {
+                  const createdDate = word.created_at ? new Date(word.created_at) : null;
+                  const dateStr = createdDate && !isNaN(createdDate.getTime())
+                    ? createdDate.toLocaleDateString(currentLang === 'vi' ? 'vi-VN' : 'en-US', { day: '2-digit', month: '2-digit' })
+                    : '';
+                  return (
+                    <div key={word.id} style={{ background: colors.bgContainer, border: '1px solid ' + colors.border, padding: '10px 12px', borderRadius: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: word.status === 'mastered' ? '#10b981' : '#6366f1' }} />
+                          <strong style={{ fontSize: '13px', color: colors.textMain, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600 }}>
+                            {word.word}
+                          </strong>
+                          <span style={{ fontSize: '10px', color: '#8b5cf6' }}>{word.phonetic}</span>
+                          {dateStr && (
+                            <span style={{ fontSize: '10px', color: colors.textMuted, marginLeft: 'auto', marginRight: 4 }}>
+                              {dateStr}
+                            </span>
+                          )}
+                        </div>
+                        <span style={{ fontSize: '12px', color: colors.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {word.meaning}
+                        </span>
                       </div>
-                      <span style={{ fontSize: '12px', color: colors.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {word.meaning}
-                      </span>
-                    </div>
 
                     <div style={{ display: 'flex', gap: 6, marginLeft: 8 }}>
                       <Button 
@@ -1320,7 +1476,8 @@ export const CompactView: React.FC = () => {
                       />
                     </div>
                   </div>
-                ))
+                );
+              })
               ) : (
                 <div style={{ textAlign: 'center', padding: '24px 0', color: colors.textMuted, fontSize: '12px' }}>
                   {translate('emptyVocab', currentLang)}
@@ -1463,65 +1620,144 @@ export const CompactView: React.FC = () => {
             display: 'flex', 
             flexDirection: 'column', 
             height: '100%', 
-            width: '100%',
-            background: colors.bgBase
+            width: '100%', 
+            background: colors.bgBase,
+            flex: 1,
+            minHeight: 0,
+            overflow: 'hidden',
+            position: 'relative'
           }}>
-            {/* Selected Text context banner */}
-            {selectedParagraph && (
-              <div style={{ 
-                background: colors.bgContainer, 
-                borderBottom: '1px solid ' + colors.border, 
-                padding: '10px 14px', 
-                display: 'flex', 
-                flexDirection: 'column', 
-                gap: 4 
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: '#38bdf8', letterSpacing: '0.5px' }}>
-                    {translate('chatContextActive', currentLang)}
-                  </span>
-                  <button 
-                    onClick={clearSelection} 
-                    style={{ 
-                      background: 'none', 
-                      border: 'none', 
-                      cursor: 'pointer', 
-                      color: '#f87171', 
-                      fontSize: '11px', 
-                      fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 2,
-                      padding: 0
-                    }}
-                  >
-                    <XCircle size={12} />
-                    {translate('chatClearContext', currentLang)}
-                  </button>
-                </div>
-                <div style={{ 
-                  fontSize: '12px', 
-                  color: colors.textMuted, 
-                  fontStyle: 'italic', 
-                  whiteSpace: 'nowrap', 
-                  overflow: 'hidden', 
-                  textOverflow: 'ellipsis' 
-                }}>
-                  "{selectedParagraph}"
-                </div>
-              </div>
+            {/* Floating Restore Pill when header is hidden */}
+            {isHeaderHidden && (
+              <button
+                type="button"
+                onClick={() => setIsHeaderHidden(false)}
+                style={{
+                  position: 'absolute',
+                  top: 8,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  zIndex: 40,
+                  background: isDark ? 'rgba(15, 23, 42, 0.92)' : 'rgba(255, 255, 255, 0.96)',
+                  backdropFilter: 'blur(10px)',
+                  border: '1px solid ' + (isDark ? 'rgba(56, 189, 248, 0.35)' : '#bae6fd'),
+                  borderRadius: 20,
+                  padding: '3px 12px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: isDark ? '#38bdf8' : '#0284c7',
+                  boxShadow: '0 3px 12px rgba(0, 0, 0, 0.12)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  transition: 'all 0.18s ease'
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.transform = 'translateX(-50%) scale(1.04)';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.transform = 'translateX(-50%) scale(1)';
+                }}
+              >
+                <ChevronDown size={13} color={isDark ? '#38bdf8' : '#0284c7'} />
+                <span>{currentLang === 'vi' ? 'Hiện thanh điều khiển' : 'Show header'}</span>
+              </button>
             )}
+
+            {/* AI Provider Status Bar */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: isHeaderHidden ? '0 14px' : '8px 14px',
+              maxHeight: isHeaderHidden ? 0 : 45,
+              opacity: isHeaderHidden ? 0 : 1,
+              overflow: 'hidden',
+              transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+              background: colors.bgContainer,
+              borderBottom: isHeaderHidden ? 'none' : '1px solid ' + colors.border,
+              fontSize: '12px',
+              flexShrink: 0
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ 
+                  width: 8, 
+                  height: 8, 
+                  borderRadius: '50%', 
+                  background: isAiConfigured ? '#10b981' : '#f59e0b',
+                  boxShadow: isAiConfigured ? '0 0 6px rgba(16, 185, 129, 0.6)' : 'none'
+                }} />
+                <span style={{ fontWeight: 600, color: colors.textMain, fontSize: '12px' }}>
+                  {getAIProviderLabel(settings, currentLang)}
+                </span>
+                {isAiConfigured && (
+                  <span style={{ 
+                    fontSize: '10.5px', 
+                    padding: '1px 6px', 
+                    borderRadius: 4, 
+                    background: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5', 
+                    color: '#10b981',
+                    fontWeight: 600
+                  }}>
+                    {currentLang === 'vi' ? 'Sẵn sàng' : 'Ready'}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => setIsHeaderHidden(true)}
+                  title={currentLang === 'vi' ? 'Thu gọn header để tăng không gian chat' : 'Collapse header to save space'}
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9',
+                    border: '1px solid ' + (isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0'),
+                    cursor: 'pointer',
+                    color: colors.textMuted,
+                    fontSize: '11px',
+                    fontWeight: 500,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 3,
+                    padding: '2px 8px',
+                    borderRadius: 6
+                  }}
+                >
+                  <ChevronUp size={12} />
+                  <span>{currentLang === 'vi' ? 'Thu gọn' : 'Collapse'}</span>
+                </button>
+                <button 
+                  onClick={() => openFullPageTab('settings')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: colors.primary,
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 3,
+                    padding: '2px 4px'
+                  }}
+                >
+                  <Settings size={12} />
+                  {currentLang === 'vi' ? 'Cài đặt' : 'Settings'}
+                </button>
+              </div>
+            </div>
+
 
             {/* Warning if AI is not configured */}
             {!isAiConfigured && (
-              <div style={{ padding: '14px 16px' }}>
+              <div style={{ padding: '12px 14px' }}>
                 <div style={{ 
-                  background: 'rgba(245, 158, 11, 0.1)', 
-                  border: '1px solid rgba(245, 158, 11, 0.2)', 
+                  background: isDark ? 'rgba(245, 158, 11, 0.12)' : '#fffbeb', 
+                  border: '1px solid ' + (isDark ? 'rgba(245, 158, 11, 0.3)' : '#fde68a'), 
                   borderRadius: 10, 
                   padding: '12px 14px', 
                   fontSize: '13px', 
-                  color: '#fbbf24', 
+                  color: isDark ? '#fbbf24' : '#b45309', 
                   display: 'flex', 
                   flexDirection: 'column',
                   gap: 10,
@@ -1530,13 +1766,13 @@ export const CompactView: React.FC = () => {
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                     <Sparkles size={16} color="#fbbf24" style={{ flexShrink: 0, marginTop: 2 }} />
                     <span style={{ fontWeight: 500, lineHeight: 1.4 }}>
-                      {translate('aiNotConfigured', currentLang)}
+                      {translate('aiChatNotConfigured', currentLang)}
                     </span>
                   </div>
                   <Button 
                     type="primary" 
                     onClick={() => openFullPageTab('settings')}
-                    style={{ width: '100%', height: 36, background: '#fbbf24', border: 'none', color: '#000000', fontWeight: 700 }}
+                    style={{ width: '100%', height: 34, background: '#f59e0b', borderColor: '#f59e0b', color: '#ffffff', fontWeight: 700, borderRadius: 8 }}
                   >
                     {translate('setupNow', currentLang)}
                   </Button>
@@ -1547,9 +1783,12 @@ export const CompactView: React.FC = () => {
             {/* Chat History Area */}
             <div 
               ref={chatScrollRef}
+              onScroll={handleChatScroll}
               style={{ 
                 flex: 1, 
+                minHeight: 0,
                 overflowY: 'auto', 
+                overscrollBehavior: 'contain',
                 padding: '14px 16px',
                 display: 'flex',
                 flexDirection: 'column',
@@ -1562,26 +1801,74 @@ export const CompactView: React.FC = () => {
                   flexDirection: 'column', 
                   alignItems: 'center', 
                   justifyContent: 'center', 
-                  height: '100%', 
-                  color: colors.textMuted,
-                  textAlign: 'center',
-                  padding: '40px 20px',
-                  gap: 12
+                  gap: 12, 
+                  padding: '30px 10px', 
+                  textAlign: 'center' 
                 }}>
                   <div style={{ 
-                    width: 56, 
-                    height: 56, 
+                    width: 52, 
+                    height: 52, 
                     borderRadius: '50%', 
-                    background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(217, 70, 239, 0.1) 100%)', 
+                    background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.15) 0%, rgba(56, 189, 248, 0.15) 100%)', 
                     display: 'flex', 
                     alignItems: 'center', 
                     justifyContent: 'center' 
                   }}>
-                    <Sparkles size={24} color="#8b5cf6" />
+                    <Sparkles size={24} color="#0284c7" />
                   </div>
-                  <p style={{ fontSize: '13px', lineHeight: 1.5, margin: 0, fontWeight: 500 }}>
+                  <p style={{ fontSize: '13px', lineHeight: 1.5, margin: 0, fontWeight: 500, color: colors.textMain, maxWidth: 320 }}>
                     {translate('chatNoMessages', currentLang)}
                   </p>
+
+                  {/* Suggestion Chips */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', maxWidth: 320, marginTop: 6 }}>
+                    {[
+                      {
+                        title: currentLang === 'vi' ? '💡 Giải thích ngữ pháp & sửa câu' : '💡 Explain grammar & check sentence',
+                        text: currentLang === 'vi' ? 'Hãy giải thích cho tôi sự khác biệt giữa thì Hiện tại Hoàn thành và Quá khứ Đơn kèm ví dụ.' : 'Can you explain the difference between Present Perfect and Past Simple with examples?'
+                      },
+                      {
+                        title: currentLang === 'vi' ? '✍️ Nâng cấp câu văn tiếng Anh tự nhiên' : '✍️ Rewrite naturally & professionally',
+                        text: currentLang === 'vi' ? 'Hãy giúp tôi viết lại câu này cho tự nhiên và chuẩn văn phong: "I want to apply this job because I very like your company".' : 'Help me rewrite this sentence naturally and professionally: "I want to apply this job because I very like your company".'
+                      },
+                      {
+                        title: currentLang === 'vi' ? '🌐 Hỏi đáp kiến thức tổng quát bất kỳ' : '🌐 Ask anything / General Q&A',
+                        text: currentLang === 'vi' ? 'Hãy chia sẻ 3 mẹo hay nhất để ghi nhớ từ vựng tiếng Anh lâu không bị quên.' : 'Share 3 best tips to remember English vocabulary effectively.'
+                      }
+                    ].map((chip, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setChatInput(chip.text);
+                        }}
+                        style={{
+                          background: colors.bgContainer,
+                          border: '1px solid ' + colors.border,
+                          borderRadius: 8,
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          color: colors.textMain,
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = '#0284c7';
+                          e.currentTarget.style.background = isDark ? 'rgba(2, 132, 199, 0.12)' : '#f0f9ff';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = colors.border;
+                          e.currentTarget.style.background = colors.bgContainer;
+                        }}
+                      >
+                        <span style={{ fontWeight: 500 }}>{chip.title}</span>
+                        <ChevronRight size={14} color={colors.textMuted} />
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 chatHistory.map((msg, idx) => (
@@ -1596,41 +1883,99 @@ export const CompactView: React.FC = () => {
                     }}
                   >
                     <div style={{
-                      maxWidth: '85%',
-                      padding: '10px 14px',
-                      borderRadius: msg.sender === 'user' ? '16px 16px 2px 16px' : '16px 16px 16px 2px',
+                      maxWidth: '88%',
+                      padding: msg.image ? '10px 14px' : '10px 18px',
+                      borderRadius: '22px',
                       background: msg.sender === 'user' 
-                        ? 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)' 
+                        ? (isDark ? 'rgba(2, 132, 199, 0.25)' : '#e8f3fe')
                         : colors.bgContainer,
-                      border: msg.sender === 'user' ? 'none' : '1px solid ' + colors.border,
-                      color: msg.sender === 'user' ? '#ffffff' : colors.textMain,
-                      boxShadow: msg.sender === 'user' ? '0 2px 8px rgba(124, 58, 237, 0.15)' : 'none'
+                      border: msg.sender === 'user' 
+                        ? (isDark ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid #dbeafe')
+                        : '1px solid ' + colors.border,
+                      color: msg.sender === 'user' 
+                        ? (isDark ? '#f8fafc' : '#151d2a')
+                        : colors.textMain,
+                      boxShadow: msg.sender === 'user' ? '0 1px 2px rgba(15, 23, 42, 0.04)' : 'none'
                     }}>
+                      {msg.image && (
+                        <div style={{ marginBottom: 6 }}>
+                          <img 
+                            src={msg.image} 
+                            alt="Attached image" 
+                            style={{ 
+                              maxWidth: '100%', 
+                              maxHeight: 200, 
+                              borderRadius: 8, 
+                              display: 'block',
+                              objectFit: 'contain',
+                              background: isDark ? '#0b0f19' : '#ffffff',
+                              border: '1px solid ' + (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)')
+                            }} 
+                          />
+                        </div>
+                      )}
                       {msg.sender === 'user' ? (
-                        <p style={{ margin: 0, fontSize: '13.5px', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                        <p style={{ 
+                          margin: 0, 
+                          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Be Vietnam Pro', sans-serif",
+                          fontSize: '14.5px', 
+                          lineHeight: '1.45', 
+                          whiteSpace: 'pre-wrap', 
+                          fontWeight: 400, 
+                          letterSpacing: '-0.01em',
+                          color: isDark ? '#f8fafc' : '#151d2a' 
+                        }}>
                           {msg.text}
                         </p>
                       ) : (
                         <div>
-                          {renderFormattedText(msg.text)}
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8, borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: 6 }}>
+                          <div 
+                            className="chat-markdown"
+                            dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.text) }}
+                          />
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginTop: 8, borderTop: '1px solid ' + (isDark ? 'rgba(255, 255, 255, 0.08)' : '#f1f5f9'), paddingTop: 6 }}>
+                            <Button
+                              type="text"
+                              size="small"
+                              onClick={() => handleCopyText(msg.text, idx)}
+                              icon={copiedId === idx ? <Check size={12} color="#10b981" /> : <Copy size={12} color={isDark ? '#94a3b8' : '#64748b'} />}
+                              style={{ 
+                                fontSize: '11px', 
+                                height: 22, 
+                                padding: '0 8px', 
+                                background: copiedId === idx 
+                                  ? (isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5')
+                                  : (isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc'), 
+                                border: '1px solid ' + (copiedId === idx 
+                                  ? (isDark ? 'rgba(16, 185, 129, 0.3)' : '#a7f3d0')
+                                  : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#e2e8f0')), 
+                                borderRadius: 6, 
+                                color: copiedId === idx ? '#10b981' : (isDark ? '#cbd5e1' : '#64748b'),
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 4 
+                              }}
+                            >
+                              {copiedId === idx ? (currentLang === 'vi' ? 'Đã sao chép' : 'Copied') : translate('copyBtn', currentLang)}
+                            </Button>
+
                             <Button
                               type="text"
                               size="small"
                               onClick={() => handleSaveGrammar(msg.text, idx)}
                               loading={savingGrammarIdx === idx}
-                              icon={<BookOpen size={12} color="#c084fc" />}
+                              icon={<BookOpen size={12} color="#0284c7" />}
                               style={{ 
                                 fontSize: '11px', 
                                 height: 22, 
                                 padding: '0 8px', 
-                                background: isDark ? 'rgba(192, 132, 252, 0.1)' : '#f3e8ff', 
-                                border: '1px solid ' + (isDark ? 'rgba(192, 132, 252, 0.2)' : '#e9d5ff'),
-                                borderRadius: 6,
-                                color: '#c084fc',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4
+                                background: isDark ? 'rgba(2, 132, 199, 0.15)' : '#e0f2fe', 
+                                border: '1px solid ' + (isDark ? 'rgba(2, 132, 199, 0.3)' : '#bae6fd'), 
+                                borderRadius: 6, 
+                                color: isDark ? '#38bdf8' : '#0284c7',
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 4 
                               }}
                             >
                               {translate('saveGrammarBtn', currentLang)}
@@ -1659,79 +2004,161 @@ export const CompactView: React.FC = () => {
             </div>
 
             {/* Input Bar */}
-            {isAiConfigured && (
-              <div style={{ 
-                padding: '10px 16px 14px 16px', 
-                borderTop: '1px solid ' + colors.border, 
-                background: colors.bgContainer,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8
-              }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <Input.TextArea
-                    placeholder={translate('chatPlaceholder', currentLang)}
-                    value={chatInput}
-                    onChange={e => setChatInput(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendChat();
-                      }
-                    }}
-                    autoSize={{ minRows: 1, maxRows: 3 }}
-                    disabled={chatLoading}
-                    style={{ 
-                      borderRadius: 12, 
-                      background: colors.bgBase, 
-                      border: '1px solid ' + colors.border, 
-                      color: colors.textMain, 
-                      fontSize: '13px',
-                      padding: '8px 12px',
-                      resize: 'none'
-                    }} 
+            <div style={{ 
+              flexShrink: 0,
+              padding: '10px 16px 14px 16px', 
+              borderTop: '1px solid ' + colors.border, 
+              background: colors.bgContainer,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              zIndex: 10
+            }}>
+              {/* Attached Image Thumbnail Preview */}
+              {chatImage && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '4px 8px',
+                  background: isDark ? 'rgba(2, 132, 199, 0.2)' : '#e0f2fe',
+                  borderRadius: 8,
+                  border: '1px solid ' + (isDark ? 'rgba(56, 189, 248, 0.3)' : '#bae6fd'),
+                  width: 'fit-content',
+                  animation: 'fadeIn 0.2s'
+                }}>
+                  <img 
+                    src={chatImage} 
+                    alt="Preview" 
+                    style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)' }} 
                   />
-                  <Button 
-                    type="primary"
-                    onClick={handleSendChat}
-                    loading={chatLoading}
-                    disabled={!chatInput.trim()}
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: '11.5px', fontWeight: 600, color: isDark ? '#e0f2fe' : '#0f172a' }}>
+                      {currentLang === 'vi' ? 'Đã đính kèm ảnh' : 'Attached image'}
+                    </span>
+                    <span style={{ fontSize: '10px', color: colors.textMuted }}>
+                      {currentLang === 'vi' ? 'Sẵn sàng gửi hoặc gõ thêm câu hỏi' : 'Ready to send'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setChatImage(null)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '2px 4px',
+                      color: '#ef4444',
+                      display: 'flex',
+                      alignItems: 'center'
+                    }}
+                    title={currentLang === 'vi' ? 'Bỏ ảnh' : 'Remove image'}
+                  >
+                    <XCircle size={15} />
+                  </button>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  onChange={handleFileSelect} 
+                  accept="image/*" 
+                  style={{ display: 'none' }} 
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  title={currentLang === 'vi' ? 'Đính kèm ảnh hoặc dán ảnh (Ctrl+V)' : 'Attach image or paste (Ctrl+V)'}
+                  style={{
+                    height: 36,
+                    width: 36,
+                    minWidth: 36,
+                    borderRadius: 10,
+                    background: isDark ? '#1e293b' : '#f0f9ff',
+                    border: '1px solid ' + (isDark ? '#334155' : '#bae6fd'),
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#0284c7',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <LucideImage size={17} />
+                </button>
+                <Input.TextArea
+                  placeholder={
+                    isAiConfigured 
+                      ? (currentLang === 'vi' 
+                          ? 'Hỏi bất kỳ điều gì, hoặc dán ảnh (Ctrl+V)...' 
+                          : 'Ask anything, or paste an image (Ctrl+V)...')
+                      : (currentLang === 'vi' 
+                          ? 'Thiết lập AI trong Cài đặt để bắt đầu trò chuyện...' 
+                          : 'Configure AI in Settings to start chatting...')
+                  }
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onPaste={handleChatPaste}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendChat();
+                    }
+                  }}
+                  autoSize={{ minRows: 1, maxRows: 3 }}
+                  disabled={chatLoading}
+                  style={{ 
+                    borderRadius: 12, 
+                    background: colors.bgBase, 
+                    border: '1px solid ' + colors.border, 
+                    color: colors.textMain, 
+                    fontSize: '13px',
+                    padding: '8px 12px',
+                    resize: 'none',
+                    flex: 1
+                  }} 
+                />
+                <Button 
+                  type="primary"
+                  onClick={handleSendChat}
+                  loading={chatLoading}
+                  disabled={!chatInput.trim() && !chatImage}
+                  style={{ 
+                    height: 36, 
+                    width: 36, 
+                    minWidth: 36,
+                    borderRadius: 10, 
+                    background: '#0284c7', 
+                    borderColor: '#0284c7',
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    padding: 0
+                  }}
+                >
+                  <ChevronRight size={18} color="#ffffff" />
+                </Button>
+              </div>
+              {chatHistory.length > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button 
+                    onClick={() => setChatHistory([])}
                     style={{ 
-                      height: 36, 
-                      width: 36, 
-                      minWidth: 36,
-                      borderRadius: 10, 
-                      background: '#7c3aed', 
+                      background: 'none', 
                       border: 'none', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'center',
+                      cursor: 'pointer', 
+                      color: '#64748b', 
+                      fontSize: '11px', 
+                      fontWeight: 600,
                       padding: 0
                     }}
                   >
-                    <ChevronRight size={18} color="#ffffff" />
-                  </Button>
+                    {translate('chatClearHistory', currentLang)}
+                  </button>
                 </div>
-                {chatHistory.length > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <button 
-                      onClick={() => setChatHistory([])}
-                      style={{ 
-                        background: 'none', 
-                        border: 'none', 
-                        cursor: 'pointer', 
-                        color: '#64748b', 
-                        fontSize: '11px', 
-                        fontWeight: 600,
-                        padding: 0
-                      }}
-                    >
-                      {translate('chatClearHistory', currentLang)}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+              )}
+            </div>
           </div>
         );
 
@@ -1743,24 +2170,14 @@ export const CompactView: React.FC = () => {
     }
   };
 
-  const containerStyle: React.CSSProperties = isPopup ? {
+  const containerStyle: React.CSSProperties = {
     width: '100%',
-    height: '100%',
+    height: isPopup ? '100%' : '100vh',
+    maxHeight: isPopup ? '100%' : '100vh',
     background: colors.bgBase,
     display: 'flex',
     flexDirection: 'column',
-    fontFamily: '"Plus Jakarta Sans", "Inter", sans-serif',
-    color: colors.textMain,
-    boxSizing: 'border-box',
-    overflow: 'hidden',
-    position: 'relative',
-  } : {
-    width: '100%',
-    minHeight: '100vh',
-    background: colors.bgBase,
-    display: 'flex',
-    flexDirection: 'column',
-    fontFamily: '"Plus Jakarta Sans", "Inter", sans-serif',
+    fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Be Vietnam Pro", sans-serif',
     color: colors.textMain,
     boxSizing: 'border-box',
     overflow: 'hidden',
@@ -1773,7 +2190,7 @@ export const CompactView: React.FC = () => {
         algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
           colorPrimary: '#8b5cf6',
-          fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif",
+          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Be Vietnam Pro', sans-serif",
           borderRadius: 8,
           colorBgContainer: colors.bgContainer,
           colorText: colors.textMain,
@@ -1793,11 +2210,22 @@ export const CompactView: React.FC = () => {
         }
       }}
     >
-      <div style={containerStyle}>
+      <div className="compact-view-container" style={containerStyle}>
         <GeometricBackground isDark={isDark} variant="compact" />
 
-        {/* Compact Header */}
-        <div style={{
+        {/* Collapsible Header Group: Compact Header + Tabs navigation */}
+        <div 
+          style={{
+            maxHeight: (activeTab === 'aichat' && isHeaderHidden) ? '0px' : '110px',
+            opacity: (activeTab === 'aichat' && isHeaderHidden) ? 0 : 1,
+            overflow: 'hidden',
+            transition: 'max-height 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.22s ease',
+            flexShrink: 0,
+            zIndex: 20
+          }}
+        >
+          {/* Compact Header */}
+          <div style={{
           position: 'relative',
           zIndex: 1,
           display: 'flex',
@@ -1969,20 +2397,23 @@ export const CompactView: React.FC = () => {
             );
           })}
         </div>
+      </div>
 
-        {/* Tab Content area */}
-        <div style={{ 
-          position: 'relative',
-          zIndex: 1,
-          flex: 1, 
-          padding: activeTab === 'aichat' ? '0' : '14px 16px', 
-          background: 'transparent', 
-          overflowY: activeTab === 'aichat' ? 'hidden' : 'auto',
-          display: activeTab === 'aichat' ? 'flex' : 'block',
-          flexDirection: 'column'
-        }}>
-          {renderTabContent()}
-        </div>
+      {/* Tab Content area */}
+      <div style={{ 
+        position: 'relative',
+        zIndex: 1,
+        flex: 1, 
+        minHeight: 0,
+        padding: activeTab === 'aichat' ? '0' : '14px 16px', 
+        background: 'transparent', 
+        overflowY: activeTab === 'aichat' ? 'hidden' : 'auto',
+        display: activeTab === 'aichat' ? 'flex' : 'block',
+        flexDirection: 'column',
+        height: '100%'
+      }}>
+        {renderTabContent()}
+      </div>
       </div>
     </ConfigProvider>
   );

@@ -779,4 +779,49 @@ describe('testAIConnection', () => {
       expect(capturedBody.messages[0].content).toContain('thêm deadline 3h chiều và lời cảm ơn');
     });
   });
+
+  describe('sendChatMessage with images', () => {
+    it('should forward image as OpenAI-compatible image_url to DeepSeek Local Proxy', async () => {
+      await saveSettings({
+        ai_provider: 'deepseek',
+        deepseek_auth_type: 'local_proxy',
+        deepseek_proxy_url: 'http://127.0.0.1:9655',
+        deepseek_model: 'deepseek-chat'
+      });
+
+      let capturedBody: any = null;
+      (globalThis.fetch as any).mockImplementation(async (_url: string, opts: any) => {
+        capturedBody = JSON.parse(opts.body);
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            choices: [{ message: { content: 'Tôi đã thấy câu hỏi trong ảnh và đáp án C là chính xác.' } }]
+          })
+        };
+      });
+
+      const response = await sendChatMessage('', [
+        {
+          sender: 'user',
+          text: 'tại sao C đúng mà không phải D',
+          image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+        }
+      ]);
+
+      expect(response).toContain('Tôi đã thấy câu hỏi trong ảnh');
+      expect(capturedBody).not.toBeNull();
+      // Verify user message has both text and image_url
+      const userMsg = capturedBody.messages.find((m: any) => m.role === 'user');
+      expect(userMsg).toBeDefined();
+      expect(Array.isArray(userMsg.content)).toBe(true);
+      expect(userMsg.content[0]).toEqual({ type: 'text', text: 'tại sao C đúng mà không phải D' });
+      expect(userMsg.content[1]).toEqual({
+        type: 'image_url',
+        image_url: {
+          url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+        }
+      });
+    });
+  });
 });
+

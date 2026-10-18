@@ -124,7 +124,11 @@ export const SettingsPage: React.FC = () => {
       const res = await testAIConnection(currentValues);
       setAiTestResult(res);
       if (res.success) {
-        message.success(res.message);
+        // Automatically persist the tested and working AI configuration!
+        await saveSettings(currentValues);
+        message.success(currentLang === 'vi' 
+          ? `${res.message} (Đã tự động lưu cấu hình AI thành công!)` 
+          : `${res.message} (AI settings auto-saved successfully!)`);
       } else {
         message.error(res.message);
       }
@@ -886,15 +890,28 @@ export const SettingsPage: React.FC = () => {
                       {translate('testAiDesc', currentLang)}
                     </Text>
                   </div>
-                  <Button
-                    type="primary"
-                    icon={<Zap size={14} />}
-                    loading={testingAi}
-                    onClick={handleTestAI}
-                    style={{ background: '#8b5cf6', borderColor: '#8b5cf6', borderRadius: 8, fontWeight: 600, height: 32, fontSize: 13 }}
-                  >
-                    {translate('testAiBtn', currentLang)}
-                  </Button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <Button
+                      type="primary"
+                      icon={<Zap size={14} />}
+                      loading={testingAi}
+                      onClick={handleTestAI}
+                      style={{ background: '#8b5cf6', borderColor: '#8b5cf6', borderRadius: 8, fontWeight: 600, height: 32, fontSize: 13 }}
+                    >
+                      {translate('testAiBtn', currentLang)}
+                    </Button>
+                    <Button
+                      icon={<Save size={14} />}
+                      loading={loading}
+                      onClick={async () => {
+                        const vals = form.getFieldsValue();
+                        await onFinish(vals);
+                      }}
+                      style={{ borderRadius: 8, fontWeight: 600, height: 32, fontSize: 13 }}
+                    >
+                      {currentLang === 'vi' ? 'Lưu cấu hình' : 'Save Config'}
+                    </Button>
+                  </div>
                 </div>
 
                 {aiTestResult && (

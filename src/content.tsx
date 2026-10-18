@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Volume2, Check, Bookmark } from 'lucide-react';
+import { Volume2, Check, Bookmark, Copy } from 'lucide-react';
 import { fetchBasicMeaning, translateSentence, translateSentenceWithAI, explainWord } from './lib/translator';
+import { isAIConfigured } from './lib/settings';
 import { PassiveHighlightManager } from './components/PassiveHighlightManager';
 import { WritingAssistantOverlay } from './components/WritingAssistantOverlay';
 
@@ -20,6 +21,33 @@ const ContentApp: React.FC = () => {
   const [hasAiProvider, setHasAiProvider] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState('');
+  const [copiedAi, setCopiedAi] = useState(false);
+
+  const handleCopyAi = () => {
+    if (!aiResult) return;
+    try {
+      navigator.clipboard.writeText(aiResult).then(() => {
+        setCopiedAi(true);
+        setTimeout(() => setCopiedAi(false), 2000);
+      });
+    } catch {
+      // fallback
+      try {
+        const t = document.createElement('textarea');
+        t.value = aiResult;
+        t.style.position = 'fixed';
+        t.style.left = '-9999px';
+        document.body.appendChild(t);
+        t.select();
+        document.execCommand('copy');
+        document.body.removeChild(t);
+        setCopiedAi(true);
+        setTimeout(() => setCopiedAi(false), 2000);
+      } catch (e) {
+        // ignore
+      }
+    }
+  };
 
   interface SelectionRect {
     left: number;
@@ -83,11 +111,7 @@ const ContentApp: React.FC = () => {
       }, (items: any) => {
         const lang = items.language || 'vi';
         setCurrentLang(lang === 'en' ? 'en' : 'vi');
-        const hasAi = 
-          (items.ai_provider === 'gemini' && !!items.gemini_api_key) ||
-          (items.ai_provider === 'openai' && !!items.openai_api_key) ||
-          (items.ai_provider === 'chatgpt_web') ||
-          (items.ai_provider === 'ollama' && !!items.ollama_url);
+        const hasAi = isAIConfigured(items);
         setHasAiProvider(hasAi);
         showTriggerIconRef.current = items.show_trigger_icon !== false;
       });
@@ -105,19 +129,9 @@ const ContentApp: React.FC = () => {
               setTriggerPosition(null);
             }
           }
-          if (changes.ai_provider || changes.gemini_api_key || changes.openai_api_key || changes.chatgpt_access_token || changes.ollama_url) {
-            chrome.storage.sync.get({ 
-              ai_provider: 'none', 
-              gemini_api_key: '', 
-              openai_api_key: '', 
-              chatgpt_access_token: '',
-              ollama_url: 'http://localhost:11434' 
-            }, (items: any) => {
-              const hasAi = 
-                (items.ai_provider === 'gemini' && !!items.gemini_api_key) ||
-                (items.ai_provider === 'openai' && !!items.openai_api_key) ||
-                (items.ai_provider === 'chatgpt_web') ||
-                (items.ai_provider === 'ollama' && !!items.ollama_url);
+          if (changes.ai_provider || changes.gemini_api_key || changes.openai_api_key || changes.chatgpt_access_token || changes.ollama_url || changes.deepseek_api_key || changes.deepseek_auth_type || changes.deepseek_proxy_url) {
+            chrome.storage.sync.get(null, (items: any) => {
+              const hasAi = isAIConfigured(items);
               setHasAiProvider(hasAi);
             });
           }
@@ -690,7 +704,29 @@ const ContentApp: React.FC = () => {
                       lineHeight: '1.45',
                       color: '#ffffff'
                     }}>
-                      {aiResult}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                        <div style={{ flex: 1, whiteSpace: 'pre-wrap' }}>{aiResult}</div>
+                        <button
+                          onClick={handleCopyAi}
+                          title={currentLang === 'vi' ? 'Sao chép kết quả' : 'Copy result'}
+                          style={{
+                            background: copiedAi ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+                            border: '1px solid ' + (copiedAi ? 'rgba(16, 185, 129, 0.4)' : 'rgba(255, 255, 255, 0.15)'),
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            padding: '3px 6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            color: copiedAi ? '#10b981' : '#cbd5e1',
+                            fontSize: '11px',
+                            flexShrink: 0
+                          }}
+                        >
+                          {copiedAi ? <Check size={11} color="#10b981" /> : <Copy size={11} />}
+                          <span>{copiedAi ? (currentLang === 'vi' ? 'Đã chép' : 'Copied') : (currentLang === 'vi' ? 'Chép' : 'Copy')}</span>
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -930,11 +966,32 @@ const ContentApp: React.FC = () => {
                       fontSize: '12px',
                       lineHeight: '1.4',
                       color: '#cbd5e1',
-                      whiteSpace: 'pre-wrap',
-                      maxHeight: '180px',
-                      overflowY: 'auto'
+                      position: 'relative'
                     }}>
-                      {aiResult}
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+                        <button
+                          onClick={handleCopyAi}
+                          title={currentLang === 'vi' ? 'Sao chép kết quả' : 'Copy result'}
+                          style={{
+                            background: copiedAi ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+                            border: '1px solid ' + (copiedAi ? 'rgba(16, 185, 129, 0.4)' : 'rgba(255, 255, 255, 0.15)'),
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            padding: '2px 6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            color: copiedAi ? '#10b981' : '#cbd5e1',
+                            fontSize: '10.5px'
+                          }}
+                        >
+                          {copiedAi ? <Check size={10} color="#10b981" /> : <Copy size={10} />}
+                          <span>{copiedAi ? (currentLang === 'vi' ? 'Đã chép' : 'Copied') : (currentLang === 'vi' ? 'Chép' : 'Copy')}</span>
+                        </button>
+                      </div>
+                      <div style={{ whiteSpace: 'pre-wrap', maxHeight: '180px', overflowY: 'auto' }}>
+                        {aiResult}
+                      </div>
                     </div>
                   )}
                 </>

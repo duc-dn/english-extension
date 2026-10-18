@@ -118,7 +118,8 @@ export async function saveSettings(settings: Partial<Settings>): Promise<void> {
   if (isChromeExtension) {
     return new Promise((resolve) => {
       chrome.storage.sync.set(settings, () => {
-        // notifyListeners will be triggered by chrome.storage.onChanged
+        // notifyListeners will also be triggered by chrome.storage.onChanged
+        notifyListeners();
         resolve();
       });
     });
@@ -133,6 +134,77 @@ export async function saveSettings(settings: Partial<Settings>): Promise<void> {
     }
     notifyListeners();
     return Promise.resolve();
+  }
+}
+
+// Check if AI is configured and ready to use based on provider
+export function isAIConfigured(settings?: Partial<Settings> | null): boolean {
+  if (!settings || !settings.ai_provider || settings.ai_provider === 'none') {
+    return false;
+  }
+
+  switch (settings.ai_provider) {
+    case 'gemini':
+      return Boolean(settings.gemini_api_key && settings.gemini_api_key.trim().length > 0);
+
+    case 'deepseek': {
+      const authType = settings.deepseek_auth_type || (settings.deepseek_api_key ? 'api_key' : 'local_proxy');
+      if (authType === 'local_proxy') {
+        return Boolean(settings.deepseek_proxy_url && settings.deepseek_proxy_url.trim().length > 0);
+      }
+      if (authType === 'web_token') {
+        return Boolean(settings.deepseek_web_token && settings.deepseek_web_token.trim().length > 0);
+      }
+      return Boolean(settings.deepseek_api_key && settings.deepseek_api_key.trim().length > 0);
+    }
+
+    case 'openai': {
+      const authType = settings.openai_auth_type || (settings.openai_api_key ? 'api_key' : 'chatgpt_web');
+      if (authType === 'chatgpt_web') {
+        return true;
+      }
+      return Boolean(settings.openai_api_key && settings.openai_api_key.trim().length > 0);
+    }
+
+    case 'chatgpt_web':
+      return true;
+
+    case 'ollama':
+      return Boolean(settings.ollama_url && settings.ollama_url.trim().length > 0);
+
+    default:
+      return false;
+  }
+}
+
+// Human readable AI provider and model label
+export function getAIProviderLabel(settings?: Partial<Settings> | null, lang: 'vi' | 'en' = 'vi'): string {
+  if (!settings || !settings.ai_provider || settings.ai_provider === 'none') {
+    return lang === 'en' ? 'AI Disconnected' : 'Chưa kết nối AI';
+  }
+  switch (settings.ai_provider) {
+    case 'gemini': {
+      const model = settings.gemini_model || 'gemini-2.5-flash-lite';
+      const cleanModel = model.replace('gemini-', '');
+      return `Gemini (${cleanModel})`;
+    }
+    case 'deepseek': {
+      const authType = settings.deepseek_auth_type || (settings.deepseek_api_key ? 'api_key' : 'local_proxy');
+      if (authType === 'local_proxy') return 'DeepSeek (Local Proxy)';
+      if (authType === 'web_token') return 'DeepSeek (Web)';
+      return `DeepSeek (${settings.deepseek_model || 'chat'})`;
+    }
+    case 'openai': {
+      const authType = settings.openai_auth_type || (settings.openai_api_key ? 'api_key' : 'chatgpt_web');
+      if (authType === 'chatgpt_web') return `ChatGPT (${settings.chatgpt_model || 'sol'})`;
+      return `OpenAI (${settings.openai_model || 'gpt-4o-mini'})`;
+    }
+    case 'chatgpt_web':
+      return `ChatGPT (${settings.chatgpt_model || 'sol'})`;
+    case 'ollama':
+      return 'Ollama';
+    default:
+      return settings.ai_provider;
   }
 }
 
@@ -158,3 +230,4 @@ export function useSettings(): Settings {
 
   return settings;
 }
+

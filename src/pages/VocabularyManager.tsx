@@ -78,11 +78,19 @@ export const VocabularyManager: React.FC = () => {
   );
   
   // useLiveQuery from Dexie makes the component auto-update when IndexedDB changes
-  const words = useLiveQuery(() => db.words.toArray()) ?? EMPTY_WORDS;
+  const words = useLiveQuery(async () => {
+    const list = await db.words.toArray();
+    return list.sort((a, b) => {
+      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return timeB - timeA;
+    });
+  }) ?? EMPTY_WORDS;
 
   const [searchText, setSearchText] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedStatus, setSelectedStatus] = useState<string | undefined>(undefined);
+  const [sortBy, setSortBy] = useState<'created_desc' | 'created_asc' | 'alpha_asc' | 'alpha_desc' | 'review_asc'>('created_desc');
 
   const allTags = useMemo(() => {
     const tags = new Set<string>();
@@ -91,7 +99,7 @@ export const VocabularyManager: React.FC = () => {
   }, [words]);
 
   const filteredWords = useMemo(() => {
-    return words.filter(word => {
+    const list = words.filter(word => {
       const matchesSearch = !searchText.trim() || 
         word.word.toLowerCase().includes(searchText.toLowerCase()) || 
         word.meaning.toLowerCase().includes(searchText.toLowerCase()) ||
@@ -107,7 +115,31 @@ export const VocabularyManager: React.FC = () => {
         
       return matchesSearch && matchesTags && matchesStatus;
     });
-  }, [words, searchText, selectedTags, selectedStatus]);
+
+    return [...list].sort((a, b) => {
+      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+
+      if (sortBy === 'created_desc') {
+        return timeB - timeA;
+      }
+      if (sortBy === 'created_asc') {
+        return timeA - timeB;
+      }
+      if (sortBy === 'alpha_asc') {
+        return a.word.localeCompare(b.word);
+      }
+      if (sortBy === 'alpha_desc') {
+        return b.word.localeCompare(a.word);
+      }
+      if (sortBy === 'review_asc') {
+        const revA = a.next_review ? new Date(a.next_review).getTime() : 0;
+        const revB = b.next_review ? new Date(b.next_review).getTime() : 0;
+        return revA - revB;
+      }
+      return timeB - timeA;
+    });
+  }, [words, searchText, selectedTags, selectedStatus, sortBy]);
 
   const handleExport = () => {
     const csv = buildVocabularyCsv(words);
@@ -331,7 +363,8 @@ export const VocabularyManager: React.FC = () => {
       title: translate('tableWord', currentLang),
       dataIndex: 'word',
       key: 'word',
-      width: '18%',
+      width: '17%',
+      sorter: (a: Word, b: Word) => a.word.localeCompare(b.word),
       render: (text: string, record: Word) => (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -407,7 +440,7 @@ export const VocabularyManager: React.FC = () => {
     {
       title: translate('tableMeaning', currentLang),
       key: 'meaning_details',
-      width: '24%',
+      width: '21%',
       render: (_: unknown, record: Word) => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <strong style={{ fontSize: 14, color: isDark ? '#818cf8' : '#4f46e5', fontWeight: 600 }}>{record.meaning}</strong>
@@ -431,7 +464,7 @@ export const VocabularyManager: React.FC = () => {
     {
       title: currentLang === 'vi' ? 'Ngữ cảnh & Ví dụ' : 'Context & Example',
       key: 'context_example',
-      width: '28%',
+      width: '23%',
       render: (_: unknown, record: Word) => {
         const text = record.contextSentence || record.example;
         return (
@@ -482,7 +515,7 @@ export const VocabularyManager: React.FC = () => {
       title: translate('tableTags', currentLang),
       dataIndex: 'tags',
       key: 'tags',
-      width: '10%',
+      width: '9%',
       render: (tags: string[]) => (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
           {tags.map(tag => {
@@ -498,20 +531,64 @@ export const VocabularyManager: React.FC = () => {
       ),
     },
     {
+      title: translate('tableCreatedAt', currentLang),
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: '11%',
+      sorter: (a: Word, b: Word) => {
+        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return timeA - timeB;
+      },
+      render: (date: Date | string) => {
+        if (!date) return <span style={{ color: isDark ? '#64748b' : '#94a3b8' }}>-</span>;
+        const d = new Date(date);
+        if (isNaN(d.getTime())) return <span style={{ color: isDark ? '#64748b' : '#94a3b8' }}>-</span>;
+
+        const dateStr = d.toLocaleDateString(currentLang === 'vi' ? 'vi-VN' : 'en-US', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        });
+        const timeStr = d.toLocaleTimeString(currentLang === 'vi' ? 'vi-VN' : 'en-US', {
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+
+        return (
+          <Tooltip title={`${timeStr} - ${dateStr}`}>
+            <div style={{ fontSize: 13, color: isDark ? '#cbd5e1' : '#475569', fontWeight: 500, lineHeight: 1.35 }}>
+              <div>{dateStr}</div>
+              <div style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#94a3b8' }}>{timeStr}</div>
+            </div>
+          </Tooltip>
+        );
+      },
+    },
+    {
       title: translate('tableNextReview', currentLang),
       dataIndex: 'next_review',
       key: 'next_review',
       width: '10%',
-      render: (date: Date) => (
-        <div style={{ fontSize: 13, color: '#475569', fontWeight: 500 }}>
-          {date.toLocaleDateString(currentLang === 'vi' ? 'vi-VN' : 'en-US')}
-        </div>
-      ),
+      sorter: (a: Word, b: Word) => {
+        const timeA = a.next_review ? new Date(a.next_review).getTime() : 0;
+        const timeB = b.next_review ? new Date(b.next_review).getTime() : 0;
+        return timeA - timeB;
+      },
+      render: (date: Date | string) => {
+        if (!date) return <span style={{ color: isDark ? '#64748b' : '#94a3b8' }}>-</span>;
+        const d = new Date(date);
+        return (
+          <div style={{ fontSize: 13, color: isDark ? '#cbd5e1' : '#475569', fontWeight: 500 }}>
+            {!isNaN(d.getTime()) ? d.toLocaleDateString(currentLang === 'vi' ? 'vi-VN' : 'en-US') : '-'}
+          </div>
+        );
+      },
     },
     {
       title: translate('tableActions', currentLang),
       key: 'action',
-      width: '10%',
+      width: '9%',
       align: 'center' as const,
       render: (_: unknown, record: Word) => (
         <Space size="middle" style={{ justifyContent: 'center', width: '100%' }}>
@@ -598,7 +675,7 @@ export const VocabularyManager: React.FC = () => {
             placeholder={currentLang === 'vi' ? 'Tìm kiếm từ vựng hoặc nghĩa...' : 'Search word or meaning...'}
             value={searchText}
             onChange={e => setSearchText(e.target.value)}
-            style={{ width: 250, borderRadius: 8 }}
+            style={{ width: 230, borderRadius: 8 }}
             allowClear
           />
           <Select
@@ -606,7 +683,7 @@ export const VocabularyManager: React.FC = () => {
             placeholder={currentLang === 'vi' ? 'Lọc theo thẻ (tags)...' : 'Filter by tags...'}
             value={selectedTags}
             onChange={setSelectedTags}
-            style={{ minWidth: 200, flex: 1, maxWidth: 400 }}
+            style={{ minWidth: 180, flex: 1, maxWidth: 360 }}
             allowClear
             maxTagCount="responsive"
             dropdownStyle={{ borderRadius: 8 }}
@@ -622,7 +699,7 @@ export const VocabularyManager: React.FC = () => {
             placeholder={currentLang === 'vi' ? 'Trạng thái...' : 'Status...'}
             value={selectedStatus}
             onChange={setSelectedStatus}
-            style={{ width: 150 }}
+            style={{ width: 140 }}
             allowClear
             dropdownStyle={{ borderRadius: 8 }}
           >
@@ -630,6 +707,20 @@ export const VocabularyManager: React.FC = () => {
             <Select.Option value="learning">{translate('statusLearning', currentLang)}</Select.Option>
             <Select.Option value="mastered">{translate('statusMastered', currentLang)}</Select.Option>
           </Select>
+
+          <Select
+            value={sortBy}
+            onChange={setSortBy}
+            style={{ width: 175 }}
+            dropdownStyle={{ borderRadius: 8 }}
+            options={[
+              { value: 'created_desc', label: `🕒 ${translate('sortNewest', currentLang)}` },
+              { value: 'created_asc', label: `🕒 ${translate('sortOldest', currentLang)}` },
+              { value: 'alpha_asc', label: `🔤 ${translate('sortAlphaAsc', currentLang)}` },
+              { value: 'alpha_desc', label: `🔤 ${translate('sortAlphaDesc', currentLang)}` },
+              { value: 'review_asc', label: `📅 ${translate('sortReviewAsc', currentLang)}` },
+            ]}
+          />
         </div>
 
         {filteredWords.length === 0 ? (

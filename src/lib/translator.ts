@@ -339,8 +339,39 @@ async function callDeepSeekWebChat(
   return accumulatedText.trim();
 }
 
+export interface AIMessage {
+  role: string;
+  content: string;
+  imageBase64?: string;
+}
+
+export function formatOpenAIMessages(messages: AIMessage[]) {
+  return messages.map(m => {
+    if (m.imageBase64 && m.role === 'user') {
+      const contentParts: any[] = [];
+      if (m.content) {
+        contentParts.push({ type: 'text', text: m.content });
+      }
+      contentParts.push({
+        type: 'image_url',
+        image_url: {
+          url: m.imageBase64.startsWith('data:') ? m.imageBase64 : `data:image/jpeg;base64,${m.imageBase64}`
+        }
+      });
+      return {
+        role: m.role,
+        content: contentParts
+      };
+    }
+    return {
+      role: m.role,
+      content: m.content
+    };
+  });
+}
+
 async function callAI(
-  messages: { role: string; content: string }[], 
+  messages: AIMessage[], 
   isJson = false,
   overrideSettings?: Partial<Settings>
 ): Promise<string> {
@@ -363,10 +394,36 @@ async function callAI(
     
     const systemMessage = messages.find(m => m.role === 'system');
     const userAndModelMessages = messages.filter(m => m.role !== 'system');
-    const formattedContents = userAndModelMessages.map(m => ({
-      role: m.role === 'assistant' ? 'model' : m.role,
-      parts: [{ text: m.content }]
-    }));
+    const formattedContents = userAndModelMessages.map(m => {
+      const parts: any[] = [];
+      if (m.imageBase64) {
+        const match = m.imageBase64.match(/^data:(image\/[a-zA-Z0-9.+_-]+);base64,(.+)$/);
+        if (match) {
+          parts.push({
+            inlineData: {
+              mimeType: match[1],
+              data: match[2]
+            }
+          });
+        } else {
+          parts.push({
+            inlineData: {
+              mimeType: 'image/jpeg',
+              data: m.imageBase64
+            }
+          });
+        }
+      }
+      if (m.content) {
+        parts.push({ text: m.content });
+      } else if (parts.length === 0) {
+        parts.push({ text: '' });
+      }
+      return {
+        role: m.role === 'assistant' ? 'model' : m.role,
+        parts
+      };
+    });
 
     const reqBody: any = {
       contents: formattedContents
@@ -434,10 +491,7 @@ async function callAI(
       
       const reqBody: any = {
         model: settings.deepseek_model || 'deepseek-chat',
-        messages: messages.map(m => ({
-          role: m.role,
-          content: m.content
-        })),
+        messages: formatOpenAIMessages(messages),
         stream: false
       };
       if (isJson) {
@@ -539,10 +593,7 @@ async function callAI(
 
     const reqBody: any = {
       model: settings.deepseek_model || 'deepseek-chat',
-      messages: messages.map(m => ({
-        role: m.role,
-        content: m.content
-      }))
+      messages: formatOpenAIMessages(messages)
     };
     if (isJson) {
       reqBody.response_format = { type: 'json_object' };
@@ -582,10 +633,7 @@ async function callAI(
     }
     const reqBody: any = {
       model: settings.openai_model || 'gpt-4o-mini',
-      messages: messages.map(m => ({
-        role: m.role,
-        content: m.content
-      }))
+      messages: formatOpenAIMessages(messages)
     };
     if (isJson) {
       reqBody.response_format = { type: 'json_object' };
@@ -637,10 +685,7 @@ async function callAI(
 
     const reqBody: any = {
       model,
-      messages: messages.map(m => ({
-        role: m.role,
-        content: m.content
-      })),
+      messages: formatOpenAIMessages(messages),
       stream: false
     };
     if (isJson) {
@@ -663,10 +708,13 @@ async function callAI(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model,
-          messages: messages.map(m => ({
-            role: m.role,
-            content: m.content
-          })),
+          messages: messages.map(m => {
+            const item: any = { role: m.role, content: m.content };
+            if (m.imageBase64 && m.role === 'user') {
+              item.images = [m.imageBase64.replace(/^data:image\/[a-zA-Z0-9.+_-]+;base64,/, '')];
+            }
+            return item;
+          }),
           stream: false
         })
       });
@@ -904,6 +952,7 @@ Hãy trả lời câu hỏi trên bằng tiếng Việt một cách chi tiết, 
 export interface ChatHistoryItem {
   sender: 'user' | 'ai';
   text: string;
+  image?: string;
 }
 
 export async function sendChatMessage(contextSentence: string, history: ChatHistoryItem[]): Promise<string> {
@@ -912,18 +961,32 @@ export async function sendChatMessage(contextSentence: string, history: ChatHist
   if (warning) return warning;
 
   try {
+    const isEn = settings.language === 'en';
+
     const systemPrompt = contextSentence 
-      ? `Tôi đang tự học tiếng Anh và đang đọc câu này: "${contextSentence}". Hãy đóng vai là một giáo viên dạy tiếng Anh nhiệt tình, giỏi ngữ pháp và cấu trúc câu. Giúp tôi giải đáp các câu hỏi học tập, phân tích thì, từ vựng hoặc cấu trúc câu dựa trên câu này hoặc các câu hỏi tiếng Anh bất kỳ khác của tôi.`
-      : `Hãy đóng vai là một giáo viên dạy tiếng Anh nhiệt tình, giỏi ngữ pháp và cấu trúc câu. Giúp tôi giải đáp mọi thắc mắc học tập về ngữ pháp, từ vựng, phát âm, dịch thuật, viết lại câu hoặc phân tích cấu trúc ngữ pháp.`;
-      
-    const messages = [];
+      ? (isEn
+          ? `You are an intelligent, versatile, and friendly AI Assistant. You are ready to assist the user with ANY topic, question, or task (general knowledge, learning, daily work, reasoning, writing, coding, or life advice). You can also analyze any attached images thoroughly and accurately.
+In addition, the user is referencing this sentence: "${contextSentence}". If their question relates to this sentence, clearly explain grammar, vocabulary, pronunciation, meaning, or nuanced usage. If their question is about ANY other topic, answer thoroughly, accurately, helpfully, and enthusiastically. Use clear markdown formatting.`
+          : `Bạn là một trợ lý AI thông minh, đa năng và thân thiện. Bạn sẵn sàng trả lời và hỗ trợ người dùng về BẤT KỲ chủ đề, câu hỏi hay nhiệm vụ nào (học tập, kiến thức tổng quát, dịch thuật, viết lách, lập trình, công việc, đời sống...). Bạn cũng có khả năng đọc, nhận diện và phân tích chi tiết bất kỳ hình ảnh nào được đính kèm.
+Đồng thời, người dùng đang tham khảo câu văn sau: "${contextSentence}". Nếu câu hỏi của người dùng liên quan đến câu này, hãy phân tích ngữ pháp, từ vựng, ngữ cảnh hoặc cấu trúc câu. Nếu người dùng hỏi về bất kỳ chủ đề nào khác, hãy giải đáp đầy đủ, chính xác, nhiệt tình và thực tế theo đúng yêu cầu. Hãy trình bày bằng markdown đẹp mắt, khoa học và dễ đọc.`)
+      : (isEn
+          ? `You are an intelligent, versatile, and helpful AI Assistant. You can assist and answer questions on ANY topic or domain (English language learning, grammar, vocabulary, writing, translation, general knowledge, coding, work, and creative ideas). You can also analyze and explain any attached images accurately. Always provide accurate, helpful, friendly, and well-structured markdown responses.`
+          : `Bạn là một trợ lý AI thông minh, đa năng và thân thiện. Bạn sẵn sàng giải đáp và hỗ trợ người dùng về BẤT KỲ chủ đề, câu hỏi hay nhiệm vụ nào: từ học tiếng Anh (ngữ pháp, từ vựng, phát âm, sửa lỗi hành văn, dịch thuật) cho đến kiến thức tổng quát, viết lách, lập trình, công việc và đời sống. Bạn có thể phân tích, đọc hiểu và giải đáp cặn kẽ mọi hình ảnh được gửi kèm. Hãy luôn trả lời chính xác, nhiệt tình, tự nhiên và trình bày markdown rõ ràng, đẹp mắt.`);
+
+    const messages: AIMessage[] = [];
     messages.push({ role: 'system', content: systemPrompt });
-    messages.push({ role: 'assistant', content: 'Chào bạn! Mình là giáo viên trợ lý tiếng Anh AI của bạn. Hãy gửi cho mình bất kỳ câu hỏi nào về từ vựng, ngữ pháp, dịch thuật hoặc phân tích câu nhé! Mình sẵn sàng hỗ trợ bạn.' });
+    messages.push({ 
+      role: 'assistant', 
+      content: isEn 
+        ? 'Hello! I am your AI Assistant. Feel free to ask me anything or paste an image to analyze—from English questions to general knowledge, writing, translations, or ideas!' 
+        : 'Xin chào! Mình là trợ lý AI thông minh của bạn. Bạn có thể hỏi mình bất kỳ câu hỏi nào hoặc dán ảnh vào để phân tích: từ tiếng Anh, từ vựng, ngữ pháp, dịch thuật đến kiến thức tổng quát, viết lách hay công việc nhé!' 
+    });
     
     history.forEach(msg => {
       messages.push({
         role: msg.sender === 'user' ? 'user' : 'assistant',
-        content: msg.text
+        content: msg.text,
+        imageBase64: msg.image
       });
     });
 
