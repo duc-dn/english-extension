@@ -5,6 +5,7 @@ import {
   Zap, MessageSquare, CheckCheck, Lightbulb, Eye, EyeOff
 } from 'lucide-react';
 import type { WritingTone, WritingPolishResult } from '../lib/translator';
+import { hasRuntimeError, isExtensionContextValid } from '../lib/extensionContext';
 
 interface ToneOption {
   id: WritingTone;
@@ -69,17 +70,24 @@ export const WritingAssistantOverlay: React.FC = () => {
 
   // Check setting from chrome sync storage
   useEffect(() => {
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
-      chrome.storage.sync.get({ enable_writing_assistant: true }, (items) => {
-        setEnabled(items.enable_writing_assistant !== false);
-      });
+    if (isExtensionContextValid() && chrome.storage?.sync) {
+      try {
+        chrome.storage.sync.get({ enable_writing_assistant: true }, (items) => {
+          if (hasRuntimeError()) return;
+          setEnabled(items.enable_writing_assistant !== false);
+        });
 
-      const onStorageChanged = (changes: any, area: string) => {
-        if (area === 'sync' && changes.enable_writing_assistant !== undefined) {
-          setEnabled(changes.enable_writing_assistant.newValue !== false);
-        }
-      };
-      chrome.storage.onChanged.addListener(onStorageChanged);
+        const onStorageChanged = (changes: any, area: string) => {
+          if (!isExtensionContextValid()) return;
+          if (area === 'sync' && changes.enable_writing_assistant !== undefined) {
+            setEnabled(changes.enable_writing_assistant.newValue !== false);
+          }
+        };
+        chrome.storage.onChanged.addListener(onStorageChanged);
+        return () => {
+          try { chrome.storage.onChanged.removeListener(onStorageChanged); } catch { /* extension reloaded */ }
+        };
+      } catch { /* extension reloaded */ }
     }
   }, []);
 
@@ -292,29 +300,37 @@ export const WritingAssistantOverlay: React.FC = () => {
       setIsPlayingAudio(false);
     }
 
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage(
-        { 
-          action: 'POLISH_WRITING', 
-          payload: { 
-            text, 
-            tone: selectedTone, 
-            customInstruction: promptText.trim() || undefined 
-          } 
-        },
-        (res) => {
-          setLoading(false);
-          if (chrome.runtime.lastError) {
-            setErrorMsg('Không thể kết nối tiện ích. Hãy F5 tải lại trang web.');
-            return;
+    if (isExtensionContextValid()) {
+      try {
+        chrome.runtime.sendMessage(
+          {
+            action: 'POLISH_WRITING',
+            payload: {
+              text,
+              tone: selectedTone,
+              customInstruction: promptText.trim() || undefined
+            }
+          },
+          (res) => {
+            setLoading(false);
+            if (hasRuntimeError()) {
+              setErrorMsg('Không thể kết nối tiện ích. Hãy F5 tải lại trang web.');
+              return;
+            }
+            if (res && res.ok && res.result) {
+              setResult(res.result);
+            } else {
+              setErrorMsg(res?.error || 'Không thể kết nối AI để nâng cấp câu văn.');
+            }
           }
-          if (res && res.ok && res.result) {
-            setResult(res.result);
-          } else {
-            setErrorMsg(res?.error || 'Không thể kết nối AI để nâng cấp câu văn.');
-          }
-        }
-      );
+        );
+      } catch {
+        setLoading(false);
+        setErrorMsg('Tiện ích đã cập nhật. Hãy F5 tải lại trang web.');
+      }
+    } else {
+      setLoading(false);
+      setErrorMsg('Tiện ích đã cập nhật. Hãy F5 tải lại trang web.');
     }
   };
 

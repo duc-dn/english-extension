@@ -176,7 +176,86 @@ chrome.commands.onCommand.addListener((command, tab) => {
   }
 });
 
+const chatSelectionRevisionByTab = new Map<number, number>();
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'PASTE_AI_INTO_GOOGLE_DOCS') {
+    const tabId = request.tabId;
+    (async () => {
+      if (!Number.isInteger(tabId)) throw new Error('Invalid Google Docs tab');
+      const tab = await chrome.tabs.get(tabId);
+      if (!/^https:\/\/docs\.google\.com\/document\//.test(tab.url || '')) throw new Error('The active tab is not Google Docs');
+      const target = { tabId };
+      let attached = false;
+      try {
+        const before = await chrome.tabs.sendMessage(tabId, { action: 'GET_GOOGLE_DOCS_PASTE_TIME' })
+          .catch(() => null) as { lastPasteAt?: number } | null;
+        await chrome.debugger.attach(target, '1.3');
+        attached = true;
+        // Side panel clicks can steal focus from the Docs editing iframe.
+        // Restore it in the tab's main world immediately before sending input.
+        const focus = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
+          expression: `(() => {
+            const frame = document.querySelector('.docs-texteventtarget-iframe');
+            const doc = frame?.contentDocument;
+            const editor = doc?.querySelector('[contenteditable="true"]') || doc?.body;
+            frame?.contentWindow?.focus();
+            editor?.focus();
+            return !!editor && doc.activeElement === editor;
+          })()`,
+          returnByValue: true,
+        }) as { result?: { value?: boolean }; exceptionDetails?: unknown };
+        if (focus.exceptionDetails || !focus.result?.value) throw new Error('Google Docs editor did not receive focus');
+        const isMac = request.isMac === true;
+        const modifier = isMac ? 4 : 2;
+        await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', {
+          type: 'rawKeyDown', key: 'v', code: 'KeyV',
+          windowsVirtualKeyCode: 86, nativeVirtualKeyCode: isMac ? 9 : 86,
+          modifiers: modifier, unmodifiedText: 'v', commands: ['Paste'],
+        });
+        await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', {
+          type: 'keyUp', key: 'v', code: 'KeyV',
+          windowsVirtualKeyCode: 86, nativeVirtualKeyCode: isMac ? 9 : 86,
+          modifiers: modifier,
+        });
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const after = await chrome.tabs.sendMessage(tabId, { action: 'GET_GOOGLE_DOCS_PASTE_TIME' })
+          .catch(() => null) as { lastPasteAt?: number } | null;
+        if ((after?.lastPasteAt || 0) > (before?.lastPasteAt || 0)) {
+          return { success: true, confirmed: true };
+        }
+        // Google Docs can consume the edit command without forwarding a paste
+        // event to the content script. Do not convert to plain text or claim
+        // failure solely because that observer did not fire.
+        return { success: true, confirmed: false };
+      } finally {
+        if (attached) await chrome.debugger.detach(target);
+      }
+    })().then(sendResponse).catch(error => sendResponse({ success: false, error: String(error) }));
+    return true;
+  }
+
+  if (request.action === 'SET_CHAT_SELECTION') {
+    const text = typeof request.text === 'string' ? request.text.trim() : '';
+    const tabId = sender.tab?.id;
+    if (tabId && text.length <= 12000) {
+      const revision = (chatSelectionRevisionByTab.get(tabId) || 0) + 1;
+      chatSelectionRevisionByTab.set(tabId, revision);
+      if (text) {
+        chrome.storage.session.set({ chatSelection: { text, tabId, url: sender.tab?.url || '', title: sender.tab?.title || '' } });
+      } else {
+        chrome.storage.session.get('chatSelection').then(({ chatSelection }) => {
+          const current = chatSelection as { tabId?: number; url?: string } | undefined;
+          if (chatSelectionRevisionByTab.get(tabId) === revision &&
+              (current?.tabId === tabId || (!current?.tabId && current?.url === sender.tab?.url))) {
+            return chrome.storage.session.remove('chatSelection');
+          }
+        }).catch(() => {});
+      }
+    }
+    return;
+  }
+
   if (request.action === 'CHATGPT_COMPANION_START') {
     startChatGPTCompanion()
       .then(sendResponse)

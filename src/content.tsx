@@ -2,9 +2,29 @@ import React, { useEffect, useState, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Volume2, Check, Bookmark, Copy } from 'lucide-react';
 import { fetchBasicMeaning, translateSentence, translateSentenceWithAI, explainWord } from './lib/translator';
-import { isAIConfigured } from './lib/settings';
+import { getSettings, isAIConfigured } from './lib/settings';
 import { PassiveHighlightManager } from './components/PassiveHighlightManager';
 import { WritingAssistantOverlay } from './components/WritingAssistantOverlay';
+import { FloatingPomodoroOverlay } from './components/FloatingPomodoroOverlay';
+import { hasRuntimeError, isExtensionContextValid } from './lib/extensionContext';
+import { GoogleDocsSelectionTracker } from './lib/googleDocsA11y';
+
+const isGoogleDocsEditor = () => window.location.hostname === 'docs.google.com' &&
+  window.location.pathname.startsWith('/document/');
+
+const isDocsEditingTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof Element)) return false;
+  return !!target.closest('.kix-appview-editor, .docs-texteventtarget-iframe, .docs-texteventtarget');
+};
+
+let lastDocsPasteAt = 0;
+const MAX_TRANSLATION_SELECTION_LENGTH = 5000;
+
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  if (request.action === 'GET_GOOGLE_DOCS_PASTE_TIME') {
+    sendResponse({ lastPasteAt: lastDocsPasteAt });
+  }
+});
 
 const ContentApp: React.FC = () => {
   const [selectedText, setSelectedText] = useState('');
@@ -22,6 +42,7 @@ const ContentApp: React.FC = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState('');
   const [copiedAi, setCopiedAi] = useState(false);
+  const [currentContext, setCurrentContext] = useState('');
 
   const handleCopyAi = () => {
     if (!aiResult) return;
@@ -97,48 +118,47 @@ const ContentApp: React.FC = () => {
   const [pendingText, setPendingText] = useState('');
   const [pendingRect, setPendingRect] = useState<SelectionRect | null>(null);
   const showTriggerIconRef = useRef(true);
+  const lastDocsPointerRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
-      chrome.storage.sync.get({ 
-        language: 'vi', 
-        ai_provider: 'none', 
-        gemini_api_key: '', 
-        openai_api_key: '', 
-        chatgpt_access_token: '',
-        ollama_url: 'http://localhost:11434',
-        show_trigger_icon: true
-      }, (items: any) => {
-        const lang = items.language || 'vi';
-        setCurrentLang(lang === 'en' ? 'en' : 'vi');
-        const hasAi = isAIConfigured(items);
-        setHasAiProvider(hasAi);
-        showTriggerIconRef.current = items.show_trigger_icon !== false;
-      });
+    if (isExtensionContextValid() && chrome.storage?.sync) {
+      try {
+        getSettings().then((settings) => {
+          if (!isExtensionContextValid()) return;
+          const lang = settings.language || 'vi';
+          setCurrentLang(lang === 'en' ? 'en' : 'vi');
+          setHasAiProvider(isAIConfigured(settings));
+          showTriggerIconRef.current = settings.show_trigger_icon !== false;
+        });
 
-      const listener = (changes: any, areaName: string) => {
-        if (areaName === 'sync') {
-          if (changes.language) {
-            const newVal = changes.language.newValue;
-            setCurrentLang(newVal === 'en' ? 'en' : 'vi');
-          }
-          if (changes.show_trigger_icon) {
-            const show = changes.show_trigger_icon.newValue !== false;
-            showTriggerIconRef.current = show;
-            if (!show) {
-              setTriggerPosition(null);
+        const listener = (changes: any, areaName: string) => {
+          if (!isExtensionContextValid()) return;
+          if (areaName === 'sync') {
+            if (changes.language) {
+              const newVal = changes.language.newValue;
+              setCurrentLang(newVal === 'en' ? 'en' : 'vi');
+            }
+            if (changes.show_trigger_icon) {
+              const show = changes.show_trigger_icon.newValue !== false;
+              showTriggerIconRef.current = show;
+              if (!show) {
+                setTriggerPosition(null);
+              }
+            }
+            if (changes.ai_provider || changes.gemini_api_key || changes.openai_api_key || changes.chatgpt_access_token || changes.ollama_url || changes.deepseek_api_key || changes.deepseek_web_token || changes.deepseek_auth_type || changes.deepseek_proxy_url) {
+              try {
+                getSettings().then((settings) => {
+                  if (isExtensionContextValid()) setHasAiProvider(isAIConfigured(settings));
+                });
+              } catch { /* extension reloaded */ }
             }
           }
-          if (changes.ai_provider || changes.gemini_api_key || changes.openai_api_key || changes.chatgpt_access_token || changes.ollama_url || changes.deepseek_api_key || changes.deepseek_auth_type || changes.deepseek_proxy_url) {
-            chrome.storage.sync.get(null, (items: any) => {
-              const hasAi = isAIConfigured(items);
-              setHasAiProvider(hasAi);
-            });
-          }
-        }
-      };
-      chrome.storage.onChanged.addListener(listener);
-      return () => chrome.storage.onChanged.removeListener(listener);
+        };
+        chrome.storage.onChanged.addListener(listener);
+        return () => {
+          try { chrome.storage.onChanged.removeListener(listener); } catch { /* extension reloaded */ }
+        };
+      } catch { /* extension reloaded before the effect ran */ }
     }
   }, []);
 
@@ -190,9 +210,28 @@ const ContentApp: React.FC = () => {
     setShowBelow(showBelowText);
     setSelectedText(text);
     setLoading(true);
+
+    // Extract surrounding sentence/context for accurate contextual translation
+    let surroundingContext = '';
     try {
-      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        chrome.storage.local.set({ shiftSelectedText: text });
+      const selection = window.getSelection();
+      if (selection && selection.anchorNode) {
+        const fullText = selection.anchorNode.textContent || '';
+        const sentences = fullText.split(/(?<=[.!?])\s+|\n+/);
+        const matchedSentence = sentences.find(s => s.toLowerCase().includes(text.toLowerCase()));
+        surroundingContext = matchedSentence ? matchedSentence.trim() : (fullText.trim().slice(0, 300));
+      }
+    } catch (e) {
+      // ignore
+    }
+    setCurrentContext(surroundingContext);
+
+    try {
+      if (isExtensionContextValid() && chrome.storage?.local) {
+        chrome.storage.local.set({ 
+          shiftSelectedText: text,
+          selectedSentenceContext: surroundingContext 
+        });
       }
     } catch (e) {
       console.warn('Context is invalidated, cannot set storage:', e);
@@ -206,7 +245,7 @@ const ContentApp: React.FC = () => {
 
     try {
       if (!phrase) {
-        const res = await fetchBasicMeaning(text);
+        const res = await fetchBasicMeaning(text, surroundingContext);
         if (res) {
           setPhonetic(res.phonetic || '');
           setMeaning(res.vietnameseMeaning || '');
@@ -219,7 +258,7 @@ const ContentApp: React.FC = () => {
         }
       }
       
-      const translated = await translateSentence(text);
+      const translated = await translateSentence(text, surroundingContext);
       setMeaning(translated);
       setPartOfSpeech('PHRASE');
     } catch (err) {
@@ -236,28 +275,47 @@ const ContentApp: React.FC = () => {
   };
 
   useEffect(() => {
-    const isContextValid = () => {
-      if (typeof chrome === 'undefined' || !chrome.runtime) return false;
-      try {
-        return !!chrome.runtime.getManifest();
-      } catch (e) {
-        return false;
-      }
+    const docsSelection = new GoogleDocsSelectionTracker();
+    let docsPublishTimer: number | null = null;
+    let selectionPublishTimer: number | null = null;
+    const getDocsSelectionRect = (): SelectionRect | null => {
+      const overlayRect = Array.from(document.querySelectorAll('.kix-selection-overlay, .kix-canvas-tile-selection rect'))
+        .map(el => el.getBoundingClientRect())
+        .find(rect => rect.width > 0 && rect.height > 0);
+      if (!overlayRect) return null;
+      return {
+        left: overlayRect.left, top: overlayRect.top,
+        right: overlayRect.right, bottom: overlayRect.bottom,
+        width: overlayRect.width, height: overlayRect.height,
+      };
     };
 
     const handleKeyDown = async (e: KeyboardEvent) => {
-      if (!isContextValid()) {
+      if (!isExtensionContextValid()) {
         document.removeEventListener('mousedown', handleMouseDown);
         document.removeEventListener('keydown', handleKeyDown);
         document.removeEventListener('mouseup', handleMouseUp);
         return;
       }
       if (e.key === 'Shift') {
-        const selection = window.getSelection();
-        const text = selection?.toString().trim() || '';
+        if (e.repeat || e.altKey || e.ctrlKey || e.metaKey || !document.hasFocus()) return;
+        const docsTarget = isGoogleDocsEditor() &&
+          (isDocsEditingTarget(e.target) || isDocsEditingTarget(document.activeElement));
+        const eventDocument = e.target instanceof Node ? e.target.ownerDocument : null;
+        const frameSelection = docsTarget && eventDocument && eventDocument !== document
+          ? eventDocument.getSelection() : null;
+        const selection = frameSelection?.toString().trim() ? frameSelection : window.getSelection();
+        const text = docsTarget ? docsSelection.text : selection?.toString().trim() || '';
         
-        if (text && text.length > 0 && /[a-zA-Z]/.test(text) && text.length < 500) {
-          const dims = getSelectionDimensions(selection);
+        if (text && /[a-zA-Z]/.test(text) && text.length <= MAX_TRANSLATION_SELECTION_LENGTH) {
+          let dims = docsTarget ? getDocsSelectionRect() || getSelectionDimensions(selection)
+            : getSelectionDimensions(selection);
+          if (!dims && docsTarget) {
+            const pointer = lastDocsPointerRef.current;
+            const x = pointer?.x ?? window.innerWidth / 2;
+            const y = pointer?.y ?? window.innerHeight / 2;
+            dims = { left: x, top: y - 20, right: x + 24, bottom: y, width: 24, height: 20 };
+          }
           if (dims) {
             triggerTranslation(text, dims);
           }
@@ -265,8 +323,53 @@ const ContentApp: React.FC = () => {
       }
     };
 
+    const handleDocsPaste = () => { lastDocsPasteAt = Date.now(); };
+
+    const handleDocsCopy = (e: ClipboardEvent) => {
+      if (!isExtensionContextValid()) return;
+      if (!isGoogleDocsEditor() || !showTriggerIconRef.current) return;
+      const active = document.activeElement;
+      if (!isDocsEditingTarget(e.target) && !isDocsEditingTarget(active)) return;
+
+      // Docs renders its selection outside the normal DOM Selection API. Read
+      // the result of the user's own Copy action after Docs fills the clipboard.
+      window.setTimeout(async () => {
+        if (!isExtensionContextValid()) return;
+        if (!document.hasFocus() || !navigator.clipboard?.readText) return;
+        try {
+          const text = (await navigator.clipboard.readText()).trim();
+          if (!text || !/[a-zA-Z]/.test(text) || text.length > MAX_TRANSLATION_SELECTION_LENGTH) return;
+
+          const overlayRect = getDocsSelectionRect();
+          const pointer = lastDocsPointerRef.current;
+          const rect: SelectionRect = overlayRect || {
+                left: pointer?.x ?? window.innerWidth / 2,
+                top: pointer?.y ?? window.innerHeight / 2,
+                right: (pointer?.x ?? window.innerWidth / 2) + 24,
+                bottom: (pointer?.y ?? window.innerHeight / 2) + 20,
+                width: 24, height: 20,
+              };
+
+          setPendingText(text);
+          setPendingRect(rect);
+          setTriggerPosition({
+            x: Math.max(10, Math.min(rect.right - 14 + window.scrollX, window.scrollX + window.innerWidth - 38)),
+            y: Math.max(10, rect.top - 36 + window.scrollY),
+          });
+        } catch {
+          // Clipboard access can be blocked by browser or site policy.
+        }
+      }, 50);
+    };
+
+    const handleDocsPointer = (e: PointerEvent) => {
+      if (isGoogleDocsEditor() && isDocsEditingTarget(e.target)) {
+        lastDocsPointerRef.current = { x: e.clientX, y: e.clientY };
+      }
+    };
+
     const handleMouseUp = (e: MouseEvent) => {
-      if (!isContextValid()) {
+      if (!isExtensionContextValid()) {
         document.removeEventListener('mousedown', handleMouseDown);
         document.removeEventListener('keydown', handleKeyDown);
         document.removeEventListener('mouseup', handleMouseUp);
@@ -275,16 +378,20 @@ const ContentApp: React.FC = () => {
 
       // Short delay to let selection settle
       setTimeout(() => {
+        if (!isExtensionContextValid()) return;
         const selection = window.getSelection();
         const text = selection?.toString().trim() || '';
+        if (isGoogleDocsEditor()) scheduleDocsPublish();
+        else publishChatSelection();
 
-        // Prevent triggering inside inputs or editable elements
+        // Prevent triggering inside inputs or editable elements (except Google Docs)
         const activeEl = document.activeElement;
-        if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable)) {
+        const isGoogleDocs = isGoogleDocsEditor();
+        if (!isGoogleDocs && activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable)) {
           return;
         }
 
-        if (!text || text.length === 0 || !/[a-zA-Z]/.test(text) || text.length >= 500) {
+        if (!text || !/[a-zA-Z]/.test(text) || text.length > MAX_TRANSLATION_SELECTION_LENGTH) {
           const target = e.target as HTMLElement;
           if (!target.closest('#eng-ext-floating-btn') && !target.closest('#eng-ext-trigger-btn')) {
             setTriggerPosition(null);
@@ -300,7 +407,17 @@ const ContentApp: React.FC = () => {
         }
 
         if (showTriggerIconRef.current) {
-          const dims = getSelectionDimensions(selection);
+          let dims = getSelectionDimensions(selection);
+          if (!dims && isGoogleDocs && text) {
+            dims = {
+              left: e.clientX,
+              top: e.clientY - 20,
+              right: e.clientX + 30,
+              bottom: e.clientY,
+              width: 30,
+              height: 20
+            };
+          }
           if (dims) {
             const x = dims.left + window.scrollX + (dims.width / 2) - 14;
             const y = dims.top + window.scrollY - 36;
@@ -312,14 +429,47 @@ const ContentApp: React.FC = () => {
       }, 10);
     };
 
+    const publishChatSelection = () => {
+      if (!isExtensionContextValid()) return;
+      const text = isGoogleDocsEditor()
+        ? docsSelection.text
+        : (window.getSelection()?.toString() || '').trim();
+      if (text.length > 12000) return;
+      try {
+        chrome.runtime.sendMessage({ action: 'SET_CHAT_SELECTION', text });
+      } catch { /* extension was reloaded */ }
+    };
+
+    const handleSelectionChange = () => {
+      if (isGoogleDocsEditor()) return;
+      if (selectionPublishTimer !== null) window.clearTimeout(selectionPublishTimer);
+      selectionPublishTimer = window.setTimeout(publishChatSelection, 50);
+    };
+
+    const scheduleDocsPublish = () => {
+      if (docsPublishTimer !== null) window.clearTimeout(docsPublishTimer);
+      docsPublishTimer = window.setTimeout(publishChatSelection, 180);
+    };
+
+    const handleSelectionKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift' || (e.shiftKey && e.key.startsWith('Arrow'))) {
+        if (isGoogleDocsEditor()) scheduleDocsPublish();
+        else window.setTimeout(publishChatSelection, 30);
+      }
+    };
+
     const handleMouseDown = (e: MouseEvent) => {
-      if (!isContextValid()) {
+      if (!isExtensionContextValid()) {
         document.removeEventListener('mousedown', handleMouseDown);
         document.removeEventListener('keydown', handleKeyDown);
         document.removeEventListener('mouseup', handleMouseUp);
         return;
       }
       const target = e.target as HTMLElement;
+      if (isGoogleDocsEditor() && isDocsEditingTarget(target)) {
+        docsSelection.reset();
+        scheduleDocsPublish();
+      }
       if (!target.closest('#eng-ext-floating-btn') && !target.closest('#eng-ext-trigger-btn')) {
         setTriggerPosition(null);
         setPosition(null);
@@ -330,11 +480,88 @@ const ContentApp: React.FC = () => {
     document.addEventListener('mousedown', handleMouseDown);
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('selectionchange', handleSelectionChange);
+    document.addEventListener('keyup', handleSelectionKeyUp);
+    document.addEventListener('copy', handleDocsCopy);
+    document.addEventListener('paste', handleDocsPaste, true);
+    document.addEventListener('pointerup', handleDocsPointer);
+
+    // Docs sends keyboard and Copy events from its same-origin editing iframe.
+    const attachedDocsFrames = new Set<Document>();
+    let docsFrameObserver: MutationObserver | null = null;
+    let docsSelectionObserver: MutationObserver | null = null;
+    let docsAnnouncementFinder: MutationObserver | null = null;
+    const handleDocsFrameMouseDown = () => {
+      docsSelection.reset();
+      scheduleDocsPublish();
+    };
+    const attachDocsAnnouncements = () => {
+      const announcements = document.querySelector('#docs-aria-speakable');
+      if (!announcements || docsSelectionObserver) return;
+      docsSelectionObserver = new MutationObserver(records => {
+        const candidates = new Set<Node>();
+        records.forEach(record => {
+          if (record.target !== announcements) candidates.add(record.target.nodeType === Node.TEXT_NODE
+            ? record.target.parentNode || record.target : record.target);
+          record.addedNodes.forEach(node => candidates.add(node.nodeType === Node.TEXT_NODE
+            ? node.parentNode || node : node));
+        });
+        let changed = false;
+        candidates.forEach(node => { if (docsSelection.accept(node)) changed = true; });
+        if (changed) scheduleDocsPublish();
+      });
+      docsSelectionObserver.observe(announcements, { childList: true, characterData: true, subtree: true });
+      docsAnnouncementFinder?.disconnect();
+    };
+    const attachDocsFrame = () => {
+      if (!isGoogleDocsEditor()) return;
+      document.querySelectorAll<HTMLIFrameElement>('.docs-texteventtarget-iframe').forEach(frame => {
+        try {
+          const frameDoc = frame.contentDocument;
+          if (frameDoc && !attachedDocsFrames.has(frameDoc)) {
+            frameDoc.addEventListener('copy', handleDocsCopy);
+            frameDoc.addEventListener('paste', handleDocsPaste, true);
+            frameDoc.addEventListener('keydown', handleKeyDown);
+            frameDoc.addEventListener('keyup', handleSelectionKeyUp);
+            frameDoc.addEventListener('mousedown', handleDocsFrameMouseDown);
+            attachedDocsFrames.add(frameDoc);
+            docsFrameObserver?.disconnect();
+          }
+        } catch {
+          // A cross-origin frame cannot expose its selection events.
+        }
+      });
+    };
+    if (isGoogleDocsEditor()) {
+      docsFrameObserver = new MutationObserver(attachDocsFrame);
+      docsFrameObserver.observe(document.body, { childList: true, subtree: true });
+      attachDocsFrame();
+      docsAnnouncementFinder = new MutationObserver(attachDocsAnnouncements);
+      docsAnnouncementFinder.observe(document.body, { childList: true, subtree: true });
+      attachDocsAnnouncements();
+    }
 
     return () => {
       document.removeEventListener('mousedown', handleMouseDown);
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      document.removeEventListener('keyup', handleSelectionKeyUp);
+      document.removeEventListener('copy', handleDocsCopy);
+      document.removeEventListener('paste', handleDocsPaste, true);
+      document.removeEventListener('pointerup', handleDocsPointer);
+      docsFrameObserver?.disconnect();
+      docsSelectionObserver?.disconnect();
+      docsAnnouncementFinder?.disconnect();
+      if (docsPublishTimer !== null) window.clearTimeout(docsPublishTimer);
+      if (selectionPublishTimer !== null) window.clearTimeout(selectionPublishTimer);
+      attachedDocsFrames.forEach(frameDoc => {
+        frameDoc.removeEventListener('copy', handleDocsCopy);
+        frameDoc.removeEventListener('paste', handleDocsPaste, true);
+        frameDoc.removeEventListener('keydown', handleKeyDown);
+        frameDoc.removeEventListener('keyup', handleSelectionKeyUp);
+        frameDoc.removeEventListener('mousedown', handleDocsFrameMouseDown);
+      });
     };
   }, []);
 
@@ -356,7 +583,7 @@ const ContentApp: React.FC = () => {
   };
 
   const handleAiClick = async () => {
-    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) {
+    if (!isExtensionContextValid()) {
       setAiResult(currentLang === 'vi' ? 'Lỗi: Tiện ích đã cập nhật hoặc khởi động lại. Vui lòng tải lại trang web (F5) để tiếp tục dùng AI.' : 'Error: Extension was reloaded. Please refresh the page (F5) to use AI features.');
       return;
     }
@@ -365,10 +592,10 @@ const ContentApp: React.FC = () => {
     setAiResult('');
     try {
       if (isPhrase) {
-        const res = await translateSentenceWithAI(selectedText);
+        const res = await translateSentenceWithAI(selectedText, currentContext);
         setAiResult(res);
       } else {
-        const res = await explainWord(selectedText, phonetic);
+        const res = await explainWord(selectedText, phonetic, currentContext);
         setAiResult(res);
       }
     } catch (err) {
@@ -382,7 +609,7 @@ const ContentApp: React.FC = () => {
   const handleSave = () => {
     if (!selectedText || isSaved) return;
 
-    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) {
+    if (!isExtensionContextValid()) {
       console.warn("Extension context is invalidated. Cannot save word.");
       return;
     }
@@ -396,6 +623,7 @@ const ContentApp: React.FC = () => {
       context = matchedSentence ? matchedSentence.trim() : fullText.trim();
     }
 
+    const finalContext = currentContext || context || '';
     try {
       chrome.runtime.sendMessage({
         action: 'SAVE_WORD',
@@ -403,15 +631,14 @@ const ContentApp: React.FC = () => {
           word: selectedText,
           phonetic: phonetic,
           meaning: meaning || selectedText,
-          example: context || '',
-          contextSentence: context || '',
+          example: finalContext,
+          contextSentence: finalContext,
           sourceUrl: window.location.href,
           sourceTitle: document.title
         }
       }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.error('Error saving word:', chrome.runtime.lastError);
-        } else if (response && response.success) {
+        if (hasRuntimeError()) return;
+        if (response && response.success) {
           setIsSaved(true);
           setTimeout(() => {
             setPosition(null);
@@ -523,6 +750,8 @@ const ContentApp: React.FC = () => {
           gap: '8px',
           width: `${popupWidth}px`,
           maxWidth: 'min(calc(100vw - 24px), 650px)',
+          maxHeight: `${Math.max(120, showBelow ? window.innerHeight - (position.y - window.scrollY) - 12 : position.y - window.scrollY - 12)}px`,
+          overflowY: 'auto',
           boxSizing: 'border-box',
           userSelect: 'none',
           animation: 'engExtFadeIn 0.15s ease-out'
@@ -681,7 +910,7 @@ const ContentApp: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  <span style={{ color: '#ffffff', fontSize: '14px', fontWeight: 400, lineHeight: '1.5', paddingRight: '20px' }}>
+                  <span style={{ display: 'block', color: '#ffffff', fontSize: '14px', fontWeight: 400, lineHeight: '1.5', textAlign: 'justify', textAlignLast: 'left', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
                     {meaning}
                   </span>
 
@@ -705,7 +934,7 @@ const ContentApp: React.FC = () => {
                       color: '#ffffff'
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                        <div style={{ flex: 1, whiteSpace: 'pre-wrap' }}>{aiResult}</div>
+                        <div style={{ flex: 1, whiteSpace: 'pre-wrap', textAlign: 'justify', textAlignLast: 'left', overflowWrap: 'anywhere' }}>{aiResult}</div>
                         <button
                           onClick={handleCopyAi}
                           title={currentLang === 'vi' ? 'Sao chép kết quả' : 'Copy result'}
@@ -934,9 +1163,9 @@ const ContentApp: React.FC = () => {
                   {meaning && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                        <span style={{ color: '#64748b', fontSize: '10px', fontWeight: 800, letterSpacing: '0.5px' }}>{currentLang === 'vi' ? 'DỊCH NGHĨA (FREE)' : 'MEANING (FREE)'}</span>
+                        <span style={{ color: hasAiProvider ? '#c084fc' : '#64748b', fontSize: '10px', fontWeight: 800, letterSpacing: '0.5px' }}>{hasAiProvider ? (currentLang === 'vi' ? 'DỊCH NGHĨA (AI ✨)' : 'MEANING (AI ✨)') : (currentLang === 'vi' ? 'DỊCH NGHĨA (FREE)' : 'MEANING (FREE)')}</span>
                       </div>
-                      <span style={{ color: '#ffffff', fontSize: '13px', fontWeight: 400, lineHeight: '1.4' }}>
+                      <span style={{ display: 'block', color: '#ffffff', fontSize: '13px', fontWeight: 400, lineHeight: '1.4', textAlign: 'justify', textAlignLast: 'left', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
                         {meaning}
                       </span>
                     </div>
@@ -1020,6 +1249,7 @@ function initRoot() {
       <ContentApp />
       <PassiveHighlightManager />
       <WritingAssistantOverlay />
+      <FloatingPomodoroOverlay />
     </>
   );
 }

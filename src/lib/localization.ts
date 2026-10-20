@@ -397,6 +397,12 @@ export const translations = {
     pomodoroWordTitle: 'Từ vựng tiêu điểm phiên này 📖',
     pomodoroFullscreen: 'Toàn màn hình',
     pomodoroExitFullscreen: 'Thoát toàn màn hình',
+    pomodoroFloatingPin: 'Ghim đồng hồ nổi trên màn hình',
+    pomodoroFloatingUnpin: 'Bỏ ghim đồng hồ nổi khỏi màn hình',
+    pomodoroFloatingClose: 'Đóng đồng hồ nổi',
+    pomodoroFloatingMinimize: 'Thu nhỏ',
+    pomodoroFloatingExpand: 'Mở rộng chi tiết',
+    pomodoroFloatingDragTooltip: 'Kéo để di chuyển vị trí',
 
     // TODO List & Reminders
     todoList: 'Ghi chú & TODO',
@@ -882,6 +888,12 @@ export const translations = {
     pomodoroWordTitle: 'Session Focus Word 📖',
     pomodoroFullscreen: 'Fullscreen',
     pomodoroExitFullscreen: 'Exit Fullscreen',
+    pomodoroFloatingPin: 'Pin timer on screen',
+    pomodoroFloatingUnpin: 'Unpin timer from screen',
+    pomodoroFloatingClose: 'Close floating timer',
+    pomodoroFloatingMinimize: 'Minimize',
+    pomodoroFloatingExpand: 'Expand details',
+    pomodoroFloatingDragTooltip: 'Drag to move position',
 
     // TODO List & Reminders
     todoList: 'Notes & TODO',

@@ -91,4 +91,44 @@ describe('Pomodoro Timer & State Manager', () => {
     expect(pomodoroManager.getState().mode).toBe('long_break');
     expect(pomodoroManager.getState().timeLeft).toBe(15 * 60);
   });
+
+  it('controls floating visibility and minimize states', () => {
+    pomodoroManager.setFloatingVisible(false);
+    expect(pomodoroManager.getState().isFloatingVisible).toBe(false);
+
+    pomodoroManager.setFloatingVisible(true);
+    expect(pomodoroManager.getState().isFloatingVisible).toBe(true);
+
+    pomodoroManager.setFloatingMinimized(true);
+    expect(pomodoroManager.getState().floatingMinimized).toBe(true);
+
+    pomodoroManager.setFloatingMinimized(false);
+    expect(pomodoroManager.getState().floatingMinimized).toBe(false);
+  });
+
+  it('automatically sets floating visible when starting timer', () => {
+    pomodoroManager.setFloatingVisible(false);
+    pomodoroManager.start(true);
+    expect(pomodoroManager.getState().isFloatingVisible).toBe(true);
+    expect(pomodoroManager.getState().isRunning).toBe(true);
+  });
+
+  it('syncs state externally from storage updates across tabs', () => {
+    pomodoroManager.syncFromExternal({
+      mode: 'short_break',
+      cycle: 3,
+      timeLeft: 120,
+      isRunning: false,
+      isFloatingVisible: true,
+      floatingMinimized: true,
+    });
+
+    const state = pomodoroManager.getState();
+    expect(state.mode).toBe('short_break');
+    expect(state.cycle).toBe(3);
+    expect(state.timeLeft).toBe(120);
+    expect(state.isFloatingVisible).toBe(true);
+    expect(state.floatingMinimized).toBe(true);
+  });
 });
+

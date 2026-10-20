@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Volume2, Check, X } from 'lucide-react';
 import type { Word } from '../lib/db';
 import { playAudio } from '../lib/audio';
+import { hasRuntimeError, isExtensionContextValid } from '../lib/extensionContext';
 
 export const PassiveHighlightManager: React.FC = () => {
   const [learningWords, setLearningWords] = useState<Word[]>([]);
@@ -14,42 +15,56 @@ export const PassiveHighlightManager: React.FC = () => {
 
   // Load settings and words on mount
   useEffect(() => {
-    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
+    if (!isExtensionContextValid()) return;
 
     // Check setting
-    if (chrome.storage && chrome.storage.sync) {
-      chrome.storage.sync.get({ enable_passive_highlight: true, language: 'vi' }, (items) => {
-        setEnabled(items.enable_passive_highlight !== false);
-        setLang(items.language === 'en' ? 'en' : 'vi');
-      });
-
-      const onStorageChanged = (changes: any, area: string) => {
-        if (area === 'sync') {
-          if (changes.enable_passive_highlight !== undefined) {
-            setEnabled(changes.enable_passive_highlight.newValue !== false);
-          }
-          if (changes.language !== undefined) {
-            setLang(changes.language.newValue === 'en' ? 'en' : 'vi');
-          }
+    let listening = false;
+    const onStorageChanged = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
+      if (!isExtensionContextValid()) return;
+      if (area === 'sync') {
+        if (changes.enable_passive_highlight !== undefined) {
+          setEnabled(changes.enable_passive_highlight.newValue !== false);
         }
-      };
-      chrome.storage.onChanged.addListener(onStorageChanged);
+        if (changes.language !== undefined) {
+          setLang(changes.language.newValue === 'en' ? 'en' : 'vi');
+        }
+      }
+    };
+
+    try {
+      if (chrome.storage?.sync) {
+        chrome.storage.sync.get({ enable_passive_highlight: true, language: 'vi' }, (items) => {
+          if (hasRuntimeError()) return;
+          setEnabled(items.enable_passive_highlight !== false);
+          setLang(items.language === 'en' ? 'en' : 'vi');
+        });
+        chrome.storage.onChanged.addListener(onStorageChanged);
+        listening = true;
+      }
+
+      // Fetch learning words from background
+      chrome.runtime.sendMessage({ action: 'GET_LEARNING_WORDS' }, (res) => {
+        if (hasRuntimeError()) return;
+        if (res && res.ok && Array.isArray(res.words) && res.words.length > 0) {
+          setLearningWords(res.words);
+          const map = new Map<string, Word>();
+          res.words.forEach((w: Word) => {
+            if (w.word && w.word.trim().length > 1) {
+              map.set(w.word.trim().toLowerCase(), w);
+            }
+          });
+          wordMapRef.current = map;
+        }
+      });
+    } catch {
+      // A tab can keep this content script alive after the extension reloads.
     }
 
-    // Fetch learning words from background
-    chrome.runtime.sendMessage({ action: 'GET_LEARNING_WORDS' }, (res) => {
-      if (chrome.runtime.lastError) return;
-      if (res && res.ok && Array.isArray(res.words) && res.words.length > 0) {
-        setLearningWords(res.words);
-        const map = new Map<string, Word>();
-        res.words.forEach((w: Word) => {
-          if (w.word && w.word.trim().length > 1) {
-            map.set(w.word.trim().toLowerCase(), w);
-          }
-        });
-        wordMapRef.current = map;
+    return () => {
+      if (listening) {
+        try { chrome.storage.onChanged.removeListener(onStorageChanged); } catch { /* invalidated */ }
       }
-    });
+    };
   }, []);
 
   // Highlight DOM nodes matching vocabulary
@@ -209,17 +224,19 @@ export const PassiveHighlightManager: React.FC = () => {
     e.stopPropagation();
     if (!activeWord) return;
 
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({ action: 'MARK_WORD_MASTERED', payload: { id: activeWord.id } }, () => {
-        if (chrome.runtime.lastError) return;
-        // Remove highlight from page elements
-        const elements = document.querySelectorAll(`[data-word-id="${activeWord.id}"]`);
-        elements.forEach(el => {
-          el.classList.remove('engext-passive-word');
-          el.classList.add('engext-word-just-mastered');
+    if (isExtensionContextValid()) {
+      try {
+        chrome.runtime.sendMessage({ action: 'MARK_WORD_MASTERED', payload: { id: activeWord.id } }, () => {
+          if (hasRuntimeError()) return;
+          // Remove highlight from page elements
+          const elements = document.querySelectorAll(`[data-word-id="${activeWord.id}"]`);
+          elements.forEach(el => {
+            el.classList.remove('engext-passive-word');
+            el.classList.add('engext-word-just-mastered');
+          });
+          setActiveWord(null);
         });
-        setActiveWord(null);
-      });
+      } catch { /* extension reloaded */ }
     }
   };
 

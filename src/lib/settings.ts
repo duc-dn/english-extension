@@ -1,3 +1,5 @@
+import { hasRuntimeError, isExtensionContextValid } from './extensionContext';
+
 export interface Settings {
   ai_provider: 'gemini' | 'openai' | 'deepseek' | 'chatgpt_web' | 'ollama' | 'none';
   gemini_api_key?: string;
@@ -95,6 +97,7 @@ export const isChromeExtension = typeof chrome !== 'undefined' && chrome.storage
 // Listen to Chrome storage changes
 if (isChromeExtension) {
   chrome.storage.onChanged.addListener((_changes, areaName) => {
+    if (!isExtensionContextValid()) return;
     if (areaName === 'sync') {
       notifyListeners();
     }
@@ -104,9 +107,14 @@ if (isChromeExtension) {
 export async function getSettings(): Promise<Settings> {
   if (isChromeExtension) {
     return new Promise((resolve) => {
-      chrome.storage.sync.get(DEFAULT_SETTINGS as any, (items) => {
-        resolve(items as unknown as Settings);
-      });
+      if (!isExtensionContextValid()) return resolve(DEFAULT_SETTINGS);
+      try {
+        chrome.storage.sync.get(DEFAULT_SETTINGS as any, (items) => {
+          resolve(hasRuntimeError() ? DEFAULT_SETTINGS : items as unknown as Settings);
+        });
+      } catch {
+        resolve(DEFAULT_SETTINGS);
+      }
     });
   } else {
     // Return mock/localStorage for local dev / tests
@@ -117,11 +125,15 @@ export async function getSettings(): Promise<Settings> {
 export async function saveSettings(settings: Partial<Settings>): Promise<void> {
   if (isChromeExtension) {
     return new Promise((resolve) => {
-      chrome.storage.sync.set(settings, () => {
-        // notifyListeners will also be triggered by chrome.storage.onChanged
-        notifyListeners();
+      if (!isExtensionContextValid()) return resolve();
+      try {
+        chrome.storage.sync.set(settings, () => {
+          if (!hasRuntimeError()) notifyListeners();
+          resolve();
+        });
+      } catch {
         resolve();
-      });
+      }
     });
   } else {
     mockStorage = { ...mockStorage, ...settings };

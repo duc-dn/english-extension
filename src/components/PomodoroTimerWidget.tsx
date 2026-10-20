@@ -10,7 +10,9 @@ import {
   Coffee,
   Sparkles,
   Flame,
-  Maximize2
+  Maximize2,
+  Pin,
+  PinOff
 } from 'lucide-react';
 import { 
   usePomodoroTimer, 
@@ -35,6 +37,7 @@ export const PomodoroTimerWidget: React.FC<{ compact?: boolean }> = ({ compact =
     settings: pomodoroSettings,
     todayCompletedSessions,
     todayTotalMinutes,
+    isFloatingVisible,
   } = usePomodoroTimer();
 
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -234,21 +237,39 @@ export const PomodoroTimerWidget: React.FC<{ compact?: boolean }> = ({ compact =
           </Text>
         </div>
 
-        <Tooltip title={pomodoroSettings.soundEnabled ? 'Tắt âm thanh chuông' : 'Bật âm thanh chuông'}>
-          <Button
-            type="text"
-            size="small"
-            icon={
-              pomodoroSettings.soundEnabled ? (
-                <Volume2 size={15} color="#10b981" />
-              ) : (
-                <VolumeX size={15} color="#94a3b8" />
-              )
-            }
-            onClick={toggleSound}
-            style={{ padding: 4, height: 28, width: 28, borderRadius: 6 }}
-          />
-        </Tooltip>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Tooltip title={isFloatingVisible ? translate('pomodoroFloatingUnpin', currentLang) : translate('pomodoroFloatingPin', currentLang)}>
+            <Button
+              type="text"
+              size="small"
+              icon={
+                isFloatingVisible ? (
+                  <PinOff size={15} color="#f43f5e" />
+                ) : (
+                  <Pin size={15} color="#64748b" />
+                )
+              }
+              onClick={() => pomodoroManager.setFloatingVisible(!isFloatingVisible)}
+              style={{ padding: 4, height: 28, width: 28, borderRadius: 6 }}
+            />
+          </Tooltip>
+
+          <Tooltip title={pomodoroSettings.soundEnabled ? 'Tắt âm thanh chuông' : 'Bật âm thanh chuông'}>
+            <Button
+              type="text"
+              size="small"
+              icon={
+                pomodoroSettings.soundEnabled ? (
+                  <Volume2 size={15} color="#10b981" />
+                ) : (
+                  <VolumeX size={15} color="#94a3b8" />
+                )
+              }
+              onClick={toggleSound}
+              style={{ padding: 4, height: 28, width: 28, borderRadius: 6 }}
+            />
+          </Tooltip>
+        </div>
       </div>
 
       {/* Button to open dedicated full Pomodoro page */}

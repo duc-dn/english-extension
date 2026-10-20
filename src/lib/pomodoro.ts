@@ -26,6 +26,9 @@ export interface PomodoroState {
   settings: PomodoroSettings;
   todayCompletedSessions: number;
   todayTotalMinutes: number;
+  isFloatingVisible: boolean;
+  floatingMinimized: boolean;
+  targetEndTime: number | null;
 }
 
 const DEFAULT_SETTINGS: PomodoroSettings = {
@@ -136,10 +139,23 @@ class PomodoroManager {
   private settings: PomodoroSettings = loadSavedSettings();
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private targetEndTime: number | null = null;
+  private isFloatingVisible: boolean = false;
+  private floatingMinimized: boolean = false;
   private listeners: Set<(state: PomodoroState) => void> = new Set();
 
   constructor() {
     this.restoreState();
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+      try {
+        chrome.storage.onChanged.addListener((changes, area) => {
+          if (area === 'local' && changes[STATE_STORAGE_KEY]) {
+            this.syncFromExternal(changes[STATE_STORAGE_KEY].newValue);
+          }
+        });
+      } catch (e) {
+        // ignore
+      }
+    }
   }
 
   private restoreState() {
@@ -150,13 +166,15 @@ class PomodoroManager {
         this.mode = saved.mode || 'focus';
         this.cycle = saved.cycle || 1;
         this.totalDuration = saved.totalDuration || this.getDurationForMode(this.mode);
+        this.isFloatingVisible = !!saved.isFloatingVisible;
+        this.floatingMinimized = !!saved.floatingMinimized;
 
         if (saved.isRunning && saved.targetEndTime) {
           const remaining = Math.max(0, Math.ceil((saved.targetEndTime - Date.now()) / 1000));
           if (remaining > 0) {
             this.timeLeft = remaining;
             this.targetEndTime = saved.targetEndTime;
-            this.start();
+            this.start(false);
             return;
           } else {
             this.timeLeft = 0;
@@ -172,23 +190,81 @@ class PomodoroManager {
     } catch (e) {
       // Ignore
     }
+
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      try {
+        chrome.storage.local.get([STATE_STORAGE_KEY], (res) => {
+          if (res && res[STATE_STORAGE_KEY]) {
+            this.syncFromExternal(res[STATE_STORAGE_KEY]);
+          }
+        });
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+
+  public syncFromExternal(saved: any) {
+    if (!saved) return;
+    try {
+      const data = typeof saved === 'string' ? JSON.parse(saved) : saved;
+      this.mode = data.mode || this.mode;
+      this.cycle = data.cycle || this.cycle;
+      this.totalDuration = data.totalDuration || this.totalDuration;
+      if (data.isFloatingVisible !== undefined) {
+        this.isFloatingVisible = !!data.isFloatingVisible;
+      }
+      if (data.floatingMinimized !== undefined) {
+        this.floatingMinimized = !!data.floatingMinimized;
+      }
+      this.targetEndTime = data.targetEndTime || null;
+
+      if (data.isRunning && data.targetEndTime) {
+        const remaining = Math.max(0, Math.ceil((data.targetEndTime - Date.now()) / 1000));
+        this.timeLeft = remaining;
+        this.isRunning = true;
+        this.startInterval();
+      } else {
+        this.timeLeft = typeof data.timeLeft === 'number' ? data.timeLeft : this.timeLeft;
+        this.isRunning = false;
+        if (this.intervalId) {
+          clearInterval(this.intervalId);
+          this.intervalId = null;
+        }
+      }
+
+      const state = this.getState();
+      this.listeners.forEach(fn => fn(state));
+    } catch (e) {
+      // ignore
+    }
   }
 
   private persistState() {
+    const payload = {
+      mode: this.mode,
+      timeLeft: this.timeLeft,
+      totalDuration: this.totalDuration,
+      isRunning: this.isRunning,
+      cycle: this.cycle,
+      targetEndTime: this.targetEndTime,
+      isFloatingVisible: this.isFloatingVisible,
+      floatingMinimized: this.floatingMinimized,
+      updatedAt: Date.now(),
+    };
+
     try {
-      storageSet(
-        STATE_STORAGE_KEY,
-        JSON.stringify({
-          mode: this.mode,
-          timeLeft: this.timeLeft,
-          totalDuration: this.totalDuration,
-          isRunning: this.isRunning,
-          cycle: this.cycle,
-          targetEndTime: this.targetEndTime,
-        })
-      );
+      storageSet(STATE_STORAGE_KEY, JSON.stringify(payload));
     } catch (e) {
       // Ignore
+    }
+
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      try {
+        chrome.storage.local.set({ [STATE_STORAGE_KEY]: payload });
+      } catch (e) {
+        // ignore
+      }
     }
   }
 
@@ -214,6 +290,9 @@ class PomodoroManager {
       settings: { ...this.settings },
       todayCompletedSessions: todayStats.completedSessions,
       todayTotalMinutes: todayStats.totalMinutes,
+      isFloatingVisible: this.isFloatingVisible,
+      floatingMinimized: this.floatingMinimized,
+      targetEndTime: this.targetEndTime,
     };
   }
 
@@ -223,14 +302,33 @@ class PomodoroManager {
     return () => this.listeners.delete(listener);
   }
 
-  private notify() {
+  private notify(broadcast: boolean = true) {
     const state = this.getState();
     this.listeners.forEach(fn => fn(state));
-    this.persistState();
+    if (broadcast) {
+      this.persistState();
+    }
   }
 
-  public start() {
-    if (this.isRunning) return;
+  public setFloatingVisible(visible: boolean) {
+    this.isFloatingVisible = visible;
+    this.notify();
+  }
+
+  public setFloatingMinimized(minimized: boolean) {
+    this.floatingMinimized = minimized;
+    this.notify();
+  }
+
+  public start(setFloating: boolean = true) {
+    if (setFloating) {
+      this.isFloatingVisible = true;
+    }
+
+    if (this.isRunning) {
+      if (setFloating) this.notify();
+      return;
+    }
 
     if (this.timeLeft <= 0) {
       this.timeLeft = this.totalDuration;
@@ -239,6 +337,11 @@ class PomodoroManager {
     this.isRunning = true;
     this.targetEndTime = Date.now() + this.timeLeft * 1000;
 
+    this.startInterval();
+    this.notify();
+  }
+
+  private startInterval() {
     if (this.intervalId) clearInterval(this.intervalId);
 
     this.intervalId = setInterval(() => {
@@ -249,11 +352,9 @@ class PomodoroManager {
       if (remaining <= 0) {
         this.handleTimerEnd();
       } else {
-        this.notify();
+        this.notify(false);
       }
     }, 1000);
-
-    this.notify();
   }
 
   public pause() {

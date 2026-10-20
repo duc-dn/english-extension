@@ -1035,8 +1035,9 @@ body.dark-mode .chat-markdown code {
 }
 
 .chat-markdown pre {
+  position: relative;
   margin: 8px 0 12px 0;
-  padding: 10px 12px;
+  padding: 34px 12px 10px;
   border-radius: 8px;
   background: #0f172a;
   color: #f8fafc;
@@ -1049,6 +1050,29 @@ body.dark-mode .chat-markdown code {
   color: inherit;
   padding: 0;
   font-size: 12px;
+}
+
+.chat-markdown .code-copy-button {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid #475569;
+  border-radius: 5px;
+  background: #1e293b;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.chat-markdown .code-copy-button:hover,
+.chat-markdown .code-copy-button:focus-visible {
+  background: #334155;
+  color: #ffffff;
 }
 
 .chat-markdown strong {

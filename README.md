@@ -11,6 +11,12 @@ Chrome extension for saving English vocabulary while browsing, translating selec
 - Track activity, streaks, mastery, and a configurable daily review goal.
 - Import and export vocabulary as CSV. Import skips existing words without overwriting review progress.
 - Back up vocabulary, grammar notes, and review history to a configured GitHub repository.
+- With AI Chat open, select text on a web page to attach it as context for your next question. A short preview appears above the chat input and can be removed there. On send, the context is attached to that message and the input preview clears. Selection does not change the clipboard.
+- In an AI Chat reply, click the Copy icon and choose **Copy Markdown** for the source text or **Copy for Google Docs** for formatted headings, bold text, lists, and tables. After choosing the Google Docs format, paste with `Cmd+V` or `Ctrl+V`.
+
+## Google Docs
+
+Open a document at `docs.google.com/document/` and turn on **Screen reader support** in Google Docs accessibility settings. Select an English word or passage, then press **Shift** to translate it immediately. This reads Docs' accessibility announcement and does not change the clipboard. You can also press **Copy** (`Cmd+C` on macOS or `Ctrl+C` on Windows/Linux) and click the English Extension button for lookup and saving. Reload the extension and the Google Docs tab after building this version. The extension reads the clipboard only after your Copy action.
 
 ## Install locally
 

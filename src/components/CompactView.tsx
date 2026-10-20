@@ -6,11 +6,11 @@ import {
   Volume2, Check, Trash2, Globe, Moon, Sun, 
   Sparkles, XCircle, ChevronRight, Plus, MessageSquare, ExternalLink,
   CheckSquare, Square, CheckCircle2, Calendar, Image as LucideImage,
-  ChevronUp, ChevronDown, Copy
+  ChevronUp, ChevronDown, Copy, FileInput
 } from 'lucide-react';
 import { marked } from 'marked';
 import { fetchBasicMeaning, translateSentence, translateSentenceWithAI, summarizeSentence, explainWord, sendChatMessage, extractGrammarNote, type ChatHistoryItem } from '../lib/translator';
-import { Input, Button, Tag, Progress, message, ConfigProvider, Modal, theme as antdTheme, Select, Switch } from 'antd';
+import { Input, Button, Dropdown, Tag, Progress, message, ConfigProvider, Modal, theme as antdTheme, Select, Switch } from 'antd';
 import { saveSettings, useSettings, isAIConfigured, getAIProviderLabel } from '../lib/settings';
 import { translate } from '../lib/localization';
 import { PomodoroTimerWidget } from './PomodoroTimerWidget';
@@ -25,18 +25,34 @@ import {
   getTodayDateString 
 } from '../lib/todo';
 import { playTaskCompleteChime } from '../lib/audio';
+import { markdownToClipboardHtml } from '../lib/richClipboard';
 
 marked.setOptions({
   gfm: true,
   breaks: true,
 });
 
-const renderMarkdown = (text: string): string => {
+const renderMarkdown = (text: string, lang: 'vi' | 'en'): string => {
   try {
-    return marked.parse(text, { async: false }) as string;
+    const doc = new DOMParser().parseFromString(marked.parse(text, { async: false }) as string, 'text/html');
+    doc.body.querySelectorAll('pre:has(> code)').forEach(pre => {
+      const button = doc.createElement('button');
+      button.type = 'button';
+      button.className = 'code-copy-button';
+      button.setAttribute('aria-label', lang === 'vi' ? 'Sao chép mã' : 'Copy code');
+      button.title = lang === 'vi' ? 'Sao chép mã' : 'Copy code';
+      button.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>';
+      pre.appendChild(button);
+    });
+    return doc.body.innerHTML;
   } catch (e) {
     return text;
   }
+};
+
+const contextPreview = (text: string): string => {
+  const oneLine = text.replace(/\s+/g, ' ').trim();
+  return oneLine.length > 90 ? `${oneLine.slice(0, 90)}…` : oneLine;
 };
 
 const optimizeImageForAI = (file: File): Promise<string> => {
@@ -78,7 +94,7 @@ const optimizeImageForAI = (file: File): Promise<string> => {
 };
 
 export const CompactView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'lookup' | 'vocab' | 'flashcards' | 'stats' | 'settings' | 'aichat' | 'todos'>('lookup');
+  const [activeTab, setActiveTab] = useState<'lookup' | 'vocab' | 'flashcards' | 'stats' | 'settings' | 'aichat' | 'todos'>('aichat');
   const activeTabRef = useRef(activeTab);
   useEffect(() => {
     activeTabRef.current = activeTab;
@@ -114,15 +130,46 @@ export const CompactView: React.FC = () => {
 
   // AI Chat states
   const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
+  const latestQuestionIndex = React.useMemo(() => {
+    for (let i = chatHistory.length - 1; i >= 0; i--) {
+      if (chatHistory[i].sender === 'user') return i;
+    }
+    return -1;
+  }, [chatHistory]);
   const [chatInput, setChatInput] = useState('');
+  const [chatSelection, setChatSelection] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatImage, setChatImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const latestQuestionRef = useRef<HTMLDivElement>(null);
   const [savingGrammarIdx, setSavingGrammarIdx] = useState<number | null>(null);
   const [copiedId, setCopiedId] = useState<string | number | null>(null);
+  const [insertingIntoDocsId, setInsertingIntoDocsId] = useState<number | null>(null);
+  const [docsInsertError, setDocsInsertError] = useState<{ id: number; text: string } | null>(null);
   const [isHeaderHidden, setIsHeaderHidden] = useState(false);
   const lastScrollTopRef = useRef(0);
+
+  useEffect(() => {
+    if (!chrome.storage?.session) return;
+    chrome.storage.session.get('chatSelection', (items) => {
+      const selection = items.chatSelection as { text?: string } | undefined;
+      if (!chrome.runtime.lastError) setChatSelection(selection?.text || '');
+    });
+    const onSelectionChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area === 'session' && changes.chatSelection) {
+        const selection = changes.chatSelection.newValue as { text?: string } | undefined;
+        setChatSelection(selection?.text || '');
+      }
+    };
+    chrome.storage.onChanged.addListener(onSelectionChanged);
+    return () => chrome.storage.onChanged.removeListener(onSelectionChanged);
+  }, []);
+
+  const clearChatSelection = () => {
+    setChatSelection('');
+    chrome.storage?.session?.remove('chatSelection');
+  };
 
   // Vocabulary search & filter states
   const [vocabSearch, setVocabSearch] = useState('');
@@ -183,8 +230,9 @@ export const CompactView: React.FC = () => {
   useEffect(() => {
     if (typeof chrome !== 'undefined' && chrome.storage) {
       // Get initial values
-      chrome.storage.local.get(['selectedParagraph', 'shiftSelectedText'], (res: any) => {
+      chrome.storage.local.get(['selectedParagraph', 'shiftSelectedText', 'selectedSentenceContext'], (res: any) => {
         if (res) {
+          const contextForWord = (res.selectedSentenceContext as string) || (res.selectedParagraph as string) || undefined;
           if (res.selectedParagraph && typeof res.selectedParagraph === 'string') {
             if (activeTabRef.current === 'lookup') {
               setSelectedParagraph(res.selectedParagraph);
@@ -202,7 +250,7 @@ export const CompactView: React.FC = () => {
                 setManualLoading(true);
                 const isPhrase = wordCount > 1;
                 if (isPhrase) {
-                  translateSentence(text)
+                  translateSentence(text, contextForWord)
                     .then(translation => {
                       setManualResult({
                         word: text,
@@ -214,7 +262,7 @@ export const CompactView: React.FC = () => {
                     .catch(err => console.error(err))
                     .finally(() => setManualLoading(false));
                 } else {
-                  fetchBasicMeaning(text)
+                  fetchBasicMeaning(text, contextForWord)
                     .then(r => setManualResult(r))
                     .catch(err => console.error(err))
                     .finally(() => setManualLoading(false));
@@ -238,8 +286,9 @@ export const CompactView: React.FC = () => {
         if (area === 'local') {
           if (changes.selectedParagraph) {
             const newParagraph = changes.selectedParagraph.newValue || '';
-            if (activeTabRef.current === 'lookup') {
-              setSelectedParagraph(newParagraph);
+            setSelectedParagraph(newParagraph);
+            if (newParagraph) {
+              setActiveTab('lookup');
               setAiResult('');
               setAiMode(null);
               setQaQuery('');
@@ -403,7 +452,8 @@ export const CompactView: React.FC = () => {
     
     setWordExplanationLoading(true);
     try {
-      const explanation = await explainWord(manualResult.word, manualResult.meanings?.[0]?.definitions?.[0]?.definition);
+      const contextForExplanation = manualResult.meanings?.[0]?.definitions?.[0]?.example || selectedParagraph || undefined;
+      const explanation = await explainWord(manualResult.word, manualResult.meanings?.[0]?.definitions?.[0]?.definition, contextForExplanation);
       setWordExplanation(explanation);
     } catch (err) {
       setWordExplanation(currentLang === 'vi' ? 'Lỗi khi tải giải nghĩa từ AI.' : 'Error loading AI explanation.');
@@ -514,12 +564,15 @@ export const CompactView: React.FC = () => {
     }
   };
 
-  // Scroll chat to bottom on new messages
+  // Keep the newest question at the top when its answer arrives so the answer
+  // can be read from its beginning, including long responses.
   useEffect(() => {
-    if (chatScrollRef.current) {
-      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-    }
-  }, [chatHistory, chatLoading]);
+    const scroller = chatScrollRef.current;
+    const question = latestQuestionRef.current;
+    if (!scroller || !question) return;
+    const top = question.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    scroller.scrollTop = Math.max(0, top - 8);
+  }, [chatHistory]);
 
   // Reset header hidden state if active tab is not aichat
   useEffect(() => {
@@ -533,20 +586,9 @@ export const CompactView: React.FC = () => {
     const currentScrollTop = e.currentTarget.scrollTop;
     const scrollDiff = currentScrollTop - lastScrollTopRef.current;
 
-    // Near the top: always show header
-    if (currentScrollTop <= 25) {
-      setIsHeaderHidden(false);
-      lastScrollTopRef.current = currentScrollTop;
-      return;
-    }
-
     // Scrolling down by more than 10px -> hide header
     if (scrollDiff > 10 && currentScrollTop > 45) {
       setIsHeaderHidden(true);
-    } 
-    // Scrolling up by more than 8px -> show header
-    else if (scrollDiff < -8) {
-      setIsHeaderHidden(false);
     }
 
     lastScrollTopRef.current = currentScrollTop;
@@ -594,8 +636,10 @@ export const CompactView: React.FC = () => {
 
     const userMsg = chatInput.trim();
     const userImg = chatImage;
+    const attachedContext = chatSelection;
     setChatInput('');
     setChatImage(null);
+    if (attachedContext) clearChatSelection();
     setChatLoading(true);
 
     const newHistory: ChatHistoryItem[] = [
@@ -603,7 +647,8 @@ export const CompactView: React.FC = () => {
       { 
         sender: 'user', 
         text: userMsg || (currentLang === 'vi' ? 'Hãy phân tích và giải thích hình ảnh này giúp tôi.' : 'Please analyze and explain this image for me.'),
-        image: userImg || undefined 
+        image: userImg || undefined,
+        context: attachedContext || undefined
       }
     ];
     setChatHistory(newHistory);
@@ -658,6 +703,90 @@ export const CompactView: React.FC = () => {
       });
     } else {
       fallbackCopy(text, onSuccess);
+    }
+  };
+
+  const handleCopyForGoogleDocs = async (markdown: string, id: number) => {
+    if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+      message.error(currentLang === 'vi' ? 'Trình duyệt không hỗ trợ sao chép định dạng.' : 'Rich text copying is unavailable in this browser.');
+      return;
+    }
+    try {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([markdownToClipboardHtml(markdown)], { type: 'text/html' }),
+        'text/plain': new Blob([markdown], { type: 'text/plain' }),
+      })]);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+      message.success(currentLang === 'vi' ? 'Đã sao chép định dạng. Dán vào Google Docs bằng Cmd/Ctrl+V.' : 'Formatted content copied. Paste into Google Docs with Cmd/Ctrl+V.');
+    } catch {
+      message.error(currentLang === 'vi' ? 'Không thể sao chép định dạng.' : 'Could not copy formatted content.');
+    }
+  };
+
+  const handleInsertIntoGoogleDocs = async (markdown: string, id: number) => {
+    if (insertingIntoDocsId !== null) return;
+    setInsertingIntoDocsId(id);
+    setDocsInsertError(null);
+    const errorText = currentLang === 'vi' ? 'Không thể chèn vào Google Docs tại con trỏ. Hãy nhấp vào vị trí cần chèn trong tài liệu rồi thử lại.' : 'Could not insert at the Google Docs cursor. Click the insertion point in the document and try again.';
+    let previousClipboard: ClipboardItem[] | null = null;
+    let clipboardChanged = false;
+    let step = currentLang === 'vi' ? 'kiểm tra Google Docs' : 'checking Google Docs';
+    try {
+      if (!navigator.clipboard?.read || !navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+        const detail = currentLang === 'vi' ? 'Trình duyệt không hỗ trợ chèn có định dạng.' : 'Formatted insertion is unavailable in this browser.';
+        setDocsInsertError({ id, text: detail });
+        message.error(detail);
+        return;
+      }
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id || !/^https:\/\/docs\.google\.com\/document\//.test(tab.url || '')) {
+        const detail = currentLang === 'vi' ? 'Hãy mở một tài liệu Google Docs để chèn nội dung.' : 'Open a Google Docs document to insert this content.';
+        setDocsInsertError({ id, text: detail });
+        message.warning(detail);
+        return;
+      }
+      // Docs accepts rich content through its native paste path. Preserve the
+      // user's clipboard, including images and HTML, around this explicit action.
+      // Keep ClipboardItems intact; reconstructing every MIME type can throw a
+      // DOMException for formats that Chrome can read but cannot write.
+      step = currentLang === 'vi' ? 'đọc clipboard' : 'reading clipboard';
+      previousClipboard = await navigator.clipboard.read();
+      step = currentLang === 'vi' ? 'ghi nội dung vào clipboard' : 'writing to clipboard';
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([markdownToClipboardHtml(markdown)], { type: 'text/html' }),
+        'text/plain': new Blob([markdown], { type: 'text/plain' }),
+      })]);
+      clipboardChanged = true;
+      step = currentLang === 'vi' ? 'dán vào Google Docs' : 'pasting into Google Docs';
+      const result = await chrome.runtime.sendMessage({
+        action: 'PASTE_AI_INTO_GOOGLE_DOCS', tabId: tab.id,
+        isMac: navigator.platform.toLowerCase().includes('mac'),
+      }) as { success?: boolean; confirmed?: boolean; error?: string } | undefined;
+      if (!result?.success) throw new Error(result?.error || 'Google Docs paste shortcut was rejected');
+      // Docs can read clipboard contents after the paste event has been handled.
+      await new Promise(resolve => setTimeout(resolve, 500));
+      message.info(result.confirmed
+        ? (currentLang === 'vi' ? 'Đã chèn nội dung có định dạng vào Google Docs.' : 'Inserted formatted content into Google Docs.')
+        : (currentLang === 'vi' ? 'Đã gửi lệnh dán có định dạng đến Google Docs. Hãy kiểm tra tài liệu.' : 'Sent the formatted paste command to Google Docs. Check the document.'));
+    } catch (error) {
+      const name = error instanceof DOMException ? error.name : '';
+      const messageText = error instanceof Error ? error.message : String(error);
+      const detail = [name, messageText].filter(Boolean).join(': ') || String(error);
+      const fullError = `${errorText} (${step}: ${detail})`;
+      setDocsInsertError({ id, text: fullError });
+      message.error(fullError, 7);
+    } finally {
+      if (clipboardChanged && previousClipboard) {
+        try {
+          if (previousClipboard.length) await navigator.clipboard.write(previousClipboard);
+          else await navigator.clipboard.writeText('');
+        } catch (error) {
+          const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+          message.warning(currentLang === 'vi' ? `Không thể khôi phục clipboard: ${detail}` : `Could not restore the clipboard: ${detail}`);
+        }
+      }
+      setInsertingIntoDocsId(null);
     }
   };
 
@@ -1874,6 +2003,7 @@ export const CompactView: React.FC = () => {
                 chatHistory.map((msg, idx) => (
                   <div 
                     key={idx}
+                    ref={idx === latestQuestionIndex ? latestQuestionRef : undefined}
                     style={{
                       display: 'flex',
                       flexDirection: 'column',
@@ -1897,6 +2027,22 @@ export const CompactView: React.FC = () => {
                         : colors.textMain,
                       boxShadow: msg.sender === 'user' ? '0 1px 2px rgba(15, 23, 42, 0.04)' : 'none'
                     }}>
+                      {msg.sender === 'user' && msg.context && (
+                        <div style={{
+                          marginBottom: 8, padding: '6px 8px', borderRadius: 8,
+                          background: isDark ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.7)',
+                          border: '1px solid ' + (isDark ? '#334155' : '#bfdbfe'),
+                          maxWidth: '100%', minWidth: 0
+                        }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: colors.primary }}>
+                            {currentLang === 'vi' ? 'Ngữ cảnh từ trang web' : 'Context from page'}
+                          </div>
+                          <div style={{
+                            fontSize: 11, color: colors.textMuted, whiteSpace: 'nowrap',
+                            overflow: 'hidden', textOverflow: 'ellipsis'
+                          }}>{contextPreview(msg.context)}</div>
+                        </div>
+                      )}
                       {msg.image && (
                         <div style={{ marginBottom: 6 }}>
                           <img 
@@ -1929,58 +2075,68 @@ export const CompactView: React.FC = () => {
                         </p>
                       ) : (
                         <div>
-                          <div 
-                            className="chat-markdown"
-                            dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.text) }}
-                          />
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginTop: 8, borderTop: '1px solid ' + (isDark ? 'rgba(255, 255, 255, 0.08)' : '#f1f5f9'), paddingTop: 6 }}>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4, marginBottom: 6 }}>
                             <Button
                               type="text"
                               size="small"
-                              onClick={() => handleCopyText(msg.text, idx)}
-                              icon={copiedId === idx ? <Check size={12} color="#10b981" /> : <Copy size={12} color={isDark ? '#94a3b8' : '#64748b'} />}
-                              style={{ 
-                                fontSize: '11px', 
-                                height: 22, 
-                                padding: '0 8px', 
-                                background: copiedId === idx 
-                                  ? (isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5')
-                                  : (isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc'), 
-                                border: '1px solid ' + (copiedId === idx 
-                                  ? (isDark ? 'rgba(16, 185, 129, 0.3)' : '#a7f3d0')
-                                  : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#e2e8f0')), 
-                                borderRadius: 6, 
-                                color: copiedId === idx ? '#10b981' : (isDark ? '#cbd5e1' : '#64748b'),
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: 4 
+                              onClick={() => void handleInsertIntoGoogleDocs(msg.text, idx)}
+                              loading={insertingIntoDocsId === idx}
+                              icon={<FileInput size={15} />}
+                              aria-label={currentLang === 'vi' ? 'Chèn vào Google Docs tại con trỏ' : 'Insert into Google Docs at cursor'}
+                              title={currentLang === 'vi' ? 'Chèn vào Google Docs tại con trỏ' : 'Insert into Google Docs at cursor'}
+                              style={{ width: 26, height: 26, padding: 0, color: colors.primary }}
+                            />
+                            <Dropdown
+                              trigger={['click']}
+                              placement="bottomRight"
+                              menu={{
+                                items: [
+                                  { key: 'markdown', label: currentLang === 'vi' ? 'Sao chép Markdown' : 'Copy Markdown' },
+                                  { key: 'googleDocs', label: currentLang === 'vi' ? 'Sao chép cho Google Docs' : 'Copy for Google Docs' },
+                                ],
+                                onClick: ({ key }) => {
+                                  if (key === 'googleDocs') void handleCopyForGoogleDocs(msg.text, idx);
+                                  else handleCopyText(msg.text, idx);
+                                },
                               }}
                             >
-                              {copiedId === idx ? (currentLang === 'vi' ? 'Đã sao chép' : 'Copied') : translate('copyBtn', currentLang)}
-                            </Button>
-
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={copiedId === idx ? <Check size={15} /> : <Copy size={15} />}
+                                aria-label={currentLang === 'vi' ? 'Chọn kiểu sao chép' : 'Choose copy format'}
+                                title={currentLang === 'vi' ? 'Chọn kiểu sao chép' : 'Choose copy format'}
+                                style={{ width: 26, height: 26, padding: 0, color: copiedId === idx ? '#10b981' : colors.textMuted }}
+                              />
+                            </Dropdown>
                             <Button
                               type="text"
                               size="small"
                               onClick={() => handleSaveGrammar(msg.text, idx)}
                               loading={savingGrammarIdx === idx}
-                              icon={<BookOpen size={12} color="#0284c7" />}
-                              style={{ 
-                                fontSize: '11px', 
-                                height: 22, 
-                                padding: '0 8px', 
-                                background: isDark ? 'rgba(2, 132, 199, 0.15)' : '#e0f2fe', 
-                                border: '1px solid ' + (isDark ? 'rgba(2, 132, 199, 0.3)' : '#bae6fd'), 
-                                borderRadius: 6, 
-                                color: isDark ? '#38bdf8' : '#0284c7',
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: 4 
-                              }}
-                            >
-                              {translate('saveGrammarBtn', currentLang)}
-                            </Button>
+                              icon={<BookOpen size={15} />}
+                              aria-label={translate('saveGrammarBtn', currentLang)}
+                              title={translate('saveGrammarBtn', currentLang)}
+                              style={{ width: 26, height: 26, padding: 0, color: colors.primary }}
+                            />
                           </div>
+                          {docsInsertError?.id === idx && (
+                            <div role="alert" style={{ color: isDark ? '#fca5a5' : '#b91c1c', fontSize: 12, lineHeight: 1.45, marginBottom: 8 }}>
+                              {docsInsertError.text}
+                            </div>
+                          )}
+                          <div
+                            className="chat-markdown"
+                            onClick={event => {
+                              const target = event.target;
+                              if (!(target instanceof Element)) return;
+                              const button = target.closest<HTMLButtonElement>('.code-copy-button');
+                              if (!button) return;
+                              const code = button.closest('pre')?.querySelector('code');
+                              if (code) handleCopyText(code.textContent || '');
+                            }}
+                            dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.text, currentLang) }}
+                          />
                         </div>
                       )}
                     </div>
@@ -2014,6 +2170,28 @@ export const CompactView: React.FC = () => {
               gap: 8,
               zIndex: 10
             }}>
+              {chatSelection && (
+                <div style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px',
+                  borderRadius: 9, background: isDark ? '#1e293b' : '#f0f9ff',
+                  border: '1px solid ' + (isDark ? '#334155' : '#bae6fd')
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: colors.primary, marginBottom: 2 }}>
+                      {currentLang === 'vi' ? 'Ngữ cảnh từ trang web' : 'Context from page'}
+                    </div>
+                    <div style={{
+                      fontSize: 12, color: colors.textMain, overflow: 'hidden',
+                      textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                    }}>{contextPreview(chatSelection)}</div>
+                  </div>
+                  <button type="button" onClick={clearChatSelection}
+                    title={currentLang === 'vi' ? 'Bỏ ngữ cảnh' : 'Remove context'}
+                    style={{ border: 0, background: 'none', color: colors.textMuted, cursor: 'pointer', padding: 2 }}>
+                    <XCircle size={16} />
+                  </button>
+                </div>
+              )}
               {/* Attached Image Thumbnail Preview */}
               {chatImage && (
                 <div style={{
@@ -2335,8 +2513,8 @@ export const CompactView: React.FC = () => {
           zIndex: 10
         }}>
           {[
-            { id: 'lookup', label: translate('lookUpTab', currentLang), icon: <Search size={13} /> },
             { id: 'aichat', label: translate('aiChatTab', currentLang), icon: <MessageSquare size={13} /> },
+            { id: 'lookup', label: translate('lookUpTab', currentLang), icon: <Search size={13} /> },
             { 
               id: 'todos', 
               label: translate('todosTab', currentLang), 
