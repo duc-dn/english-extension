@@ -108,6 +108,9 @@ export const CompactView: React.FC = () => {
   const overdueTodosCount = pendingTodos.filter(t => isDateOverdue(t.dueDate)).length;
   const [todoQuickText, setTodoQuickText] = useState('');
   const [todoPriority, setTodoPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [isTodoAddOpen, setIsTodoAddOpen] = useState(false);
+  const [isTodoAddLoading, setIsTodoAddLoading] = useState(false);
+  const [todoDueDate, setTodoDueDate] = useState(getTodayDateString());
   const [todoFilter, setTodoFilter] = useState<'all' | 'pending' | 'completed' | 'today'>('pending');
   
   // Lookup states
@@ -849,20 +852,26 @@ export const CompactView: React.FC = () => {
       return true;
     });
 
-    const handleAddCompactTodo = async (e?: React.FormEvent) => {
-      if (e) e.preventDefault();
-      if (!todoQuickText.trim()) return;
+    const handleAddCompactTodo = async (dueDate = getTodayDateString()) => {
+      if (!todoQuickText.trim()) {
+        message.warning(translate('todoTitleLabel', currentLang));
+        return;
+      }
+      setIsTodoAddLoading(true);
       try {
         await addTodo({
           title: todoQuickText,
           priority: todoPriority,
-          dueDate: getTodayDateString(),
+          dueDate,
           tags: ['General'],
         });
         setTodoQuickText('');
+        setIsTodoAddOpen(false);
         message.success(translate('todoAddSuccess', currentLang));
       } catch {
         message.error('Lỗi khi thêm nhiệm vụ');
+      } finally {
+        setIsTodoAddLoading(false);
       }
     };
 
@@ -890,7 +899,7 @@ export const CompactView: React.FC = () => {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeIn 0.2s' }}>
         {/* Quick add bar */}
-        <form onSubmit={handleAddCompactTodo} style={{ display: 'flex', gap: 6 }}>
+        <form onSubmit={(e) => { e.preventDefault(); void handleAddCompactTodo(); }} style={{ display: 'flex', gap: 6 }}>
           <Input
             value={todoQuickText}
             onChange={(e) => setTodoQuickText(e.target.value)}
@@ -902,20 +911,62 @@ export const CompactView: React.FC = () => {
             value={todoPriority}
             onChange={setTodoPriority}
             size="small"
-            style={{ width: 85, height: 34 }}
+            aria-label={translate('todoPriorityLabel', currentLang)}
+            style={{ width: 85, height: 34, fontSize: 12, flexShrink: 0 }}
             options={[
-              { value: 'high', label: `🔥 ${translate('todoPriorityHigh', currentLang).slice(0, 4)}` },
-              { value: 'medium', label: `⚡ ${translate('todoPriorityMedium', currentLang).slice(0, 4)}` },
-              { value: 'low', label: `🌱 ${translate('todoPriorityLow', currentLang).slice(0, 4)}` },
+              { value: 'high', label: <span style={{ fontSize: 12 }}>🔥 {translate('todoPriorityHigh', currentLang).slice(0, 4)}</span> },
+              { value: 'medium', label: <span style={{ fontSize: 12 }}>⚡ {translate('todoPriorityMedium', currentLang).slice(0, 4)}</span> },
+              { value: 'low', label: <span style={{ fontSize: 12 }}>🌱 {translate('todoPriorityLow', currentLang).slice(0, 4)}</span> },
             ]}
           />
           <Button
             type="primary"
-            htmlType="submit"
+            htmlType="button"
             icon={<Plus size={14} />}
+            aria-label={currentLang === 'vi' ? 'Thêm công việc' : 'Add task'}
+            onClick={() => { setTodoDueDate(getTodayDateString()); setIsTodoAddOpen(true); }}
             style={{ height: 34, borderRadius: 8, background: '#0284c7', padding: '0 10px' }}
           />
         </form>
+
+        <Modal
+          title={currentLang === 'vi' ? 'Thêm nhiệm vụ mới' : 'Add New Task'}
+          open={isTodoAddOpen}
+          onOk={() => void handleAddCompactTodo(todoDueDate)}
+          onCancel={() => setIsTodoAddOpen(false)}
+          confirmLoading={isTodoAddLoading}
+          okText={currentLang === 'vi' ? 'Lưu nhiệm vụ' : 'Save Task'}
+          cancelText={currentLang === 'vi' ? 'Hủy' : 'Cancel'}
+          width={420}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingTop: 10 }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, fontWeight: 600 }}>
+              {translate('todoTitleLabel', currentLang)}
+              <Input
+                autoFocus
+                value={todoQuickText}
+                onChange={(e) => setTodoQuickText(e.target.value)}
+                onPressEnter={() => void handleAddCompactTodo(todoDueDate)}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, fontWeight: 600 }}>
+              {translate('todoPriorityLabel', currentLang)}
+              <Select
+                value={todoPriority}
+                onChange={setTodoPriority}
+                options={[
+                  { value: 'low', label: translate('todoPriorityLow', currentLang) },
+                  { value: 'medium', label: translate('todoPriorityMedium', currentLang) },
+                  { value: 'high', label: translate('todoPriorityHigh', currentLang) },
+                ]}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, fontWeight: 600 }}>
+              {translate('todoDueDateLabel', currentLang)}
+              <Input type="date" value={todoDueDate} onChange={(e) => setTodoDueDate(e.target.value)} />
+            </label>
+          </div>
+        </Modal>
 
         {/* Filter Pills */}
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1729,6 +1780,23 @@ export const CompactView: React.FC = () => {
                   checked={settings.show_trigger_icon !== false} 
                   onChange={async (checked) => {
                     await saveSettings({ show_trigger_icon: checked });
+                  }} 
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid ' + colors.borderLight, paddingTop: 12 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, paddingRight: 12 }}>
+                  <span style={{ fontWeight: 600, color: colors.textMain, fontSize: '13px' }}>
+                    {currentLang === 'vi' ? 'Gạch chân mờ từ đang học (Web)' : 'Highlight learning words on web'}
+                  </span>
+                  <span style={{ color: colors.textMuted, fontSize: '11px', lineHeight: 1.3 }}>
+                    {currentLang === 'vi' ? 'Tự động gạch chân nét đứt mờ các từ đang học khi lướt web' : 'Subtle dashed underline for words currently in learning'}
+                  </span>
+                </div>
+                <Switch 
+                  checked={settings.enable_passive_highlight !== false} 
+                  onChange={async (checked) => {
+                    await saveSettings({ enable_passive_highlight: checked });
                   }} 
                 />
               </div>

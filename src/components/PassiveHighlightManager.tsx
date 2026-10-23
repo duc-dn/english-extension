@@ -4,6 +4,30 @@ import type { Word } from '../lib/db';
 import { playAudio } from '../lib/audio';
 import { hasRuntimeError, isExtensionContextValid } from '../lib/extensionContext';
 
+const addWordVariantsToMap = (rawWord: string, item: Word, map: Map<string, Word>) => {
+  const base = rawWord.trim().toLowerCase();
+  if (base.length < 2) return;
+  map.set(base, item);
+
+  // For words with at least 3 letters, index common inflections
+  if (base.length >= 3) {
+    if (base.endsWith('e')) {
+      map.set(base + 's', item); // accommodates
+      map.set(base + 'd', item); // accommodated
+      map.set(base.slice(0, -1) + 'ing', item); // accommodating
+    } else if (base.endsWith('y') && !/[aeiou]y$/.test(base)) {
+      map.set(base.slice(0, -1) + 'ies', item);
+      map.set(base.slice(0, -1) + 'ied', item);
+      map.set(base + 'ing', item);
+    } else {
+      map.set(base + 's', item);
+      map.set(base + 'es', item);
+      map.set(base + 'ed', item);
+      map.set(base + 'ing', item);
+    }
+  }
+};
+
 export const PassiveHighlightManager: React.FC = () => {
   const [learningWords, setLearningWords] = useState<Word[]>([]);
   const [activeWord, setActiveWord] = useState<Word | null>(null);
@@ -12,60 +36,6 @@ export const PassiveHighlightManager: React.FC = () => {
   const [lang, setLang] = useState<'vi' | 'en'>('vi');
   const wordMapRef = useRef<Map<string, Word>>(new Map());
   const isHighlightingRef = useRef(false);
-
-  // Load settings and words on mount
-  useEffect(() => {
-    if (!isExtensionContextValid()) return;
-
-    // Check setting
-    let listening = false;
-    const onStorageChanged = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
-      if (!isExtensionContextValid()) return;
-      if (area === 'sync') {
-        if (changes.enable_passive_highlight !== undefined) {
-          setEnabled(changes.enable_passive_highlight.newValue !== false);
-        }
-        if (changes.language !== undefined) {
-          setLang(changes.language.newValue === 'en' ? 'en' : 'vi');
-        }
-      }
-    };
-
-    try {
-      if (chrome.storage?.sync) {
-        chrome.storage.sync.get({ enable_passive_highlight: true, language: 'vi' }, (items) => {
-          if (hasRuntimeError()) return;
-          setEnabled(items.enable_passive_highlight !== false);
-          setLang(items.language === 'en' ? 'en' : 'vi');
-        });
-        chrome.storage.onChanged.addListener(onStorageChanged);
-        listening = true;
-      }
-
-      // Fetch learning words from background
-      chrome.runtime.sendMessage({ action: 'GET_LEARNING_WORDS' }, (res) => {
-        if (hasRuntimeError()) return;
-        if (res && res.ok && Array.isArray(res.words) && res.words.length > 0) {
-          setLearningWords(res.words);
-          const map = new Map<string, Word>();
-          res.words.forEach((w: Word) => {
-            if (w.word && w.word.trim().length > 1) {
-              map.set(w.word.trim().toLowerCase(), w);
-            }
-          });
-          wordMapRef.current = map;
-        }
-      });
-    } catch {
-      // A tab can keep this content script alive after the extension reloads.
-    }
-
-    return () => {
-      if (listening) {
-        try { chrome.storage.onChanged.removeListener(onStorageChanged); } catch { /* invalidated */ }
-      }
-    };
-  }, []);
 
   // Highlight DOM nodes matching vocabulary
   const scanAndHighlight = useCallback(() => {
@@ -98,8 +68,7 @@ export const PassiveHighlightManager: React.FC = () => {
               tag === 'INPUT' ||
               parent.isContentEditable ||
               parent.closest('#eng-ext-root') ||
-              parent.closest('.engext-passive-word') ||
-              parent.closest('mark')
+              parent.closest('.engext-passive-word')
             ) {
               return NodeFilter.FILTER_REJECT;
             }
@@ -117,13 +86,16 @@ export const PassiveHighlightManager: React.FC = () => {
       let currentNode: Node | null;
       while ((currentNode = walker.nextNode())) {
         textNodes.push(currentNode as Text);
-        // Limit batch to prevent page freeze on huge Wikipedia pages
-        if (textNodes.length > 300) break;
+        // Process up to 1500 text nodes to ensure long articles are fully highlighted
+        if (textNodes.length > 1500) break;
       }
 
       textNodes.forEach((node) => {
         const text = node.textContent;
-        if (!text || !regex.test(text)) return;
+        if (!text) return;
+
+        regex.lastIndex = 0;
+        if (!regex.test(text)) return;
 
         regex.lastIndex = 0;
         const fragment = document.createDocumentFragment();
@@ -165,20 +137,192 @@ export const PassiveHighlightManager: React.FC = () => {
     }
   }, [enabled]);
 
+  // Fetch words and re-scan
+  const refreshWords = useCallback(() => {
+    const map = new Map<string, Word>();
+    const allWords: Word[] = [];
+
+    // 1. Also include local quiz vocab (e.g. gcp_user_vocab from GCP Quiz App)
+    try {
+      const localGcpVocabRaw = window.localStorage?.getItem('gcp_user_vocab');
+      if (localGcpVocabRaw) {
+        const list = JSON.parse(localGcpVocabRaw);
+        if (Array.isArray(list)) {
+          list.forEach((item: any) => {
+            if (item && item.word && typeof item.word === 'string' && item.word.trim().length > 1) {
+              const wObj: Word = {
+                id: item.id || `gcp_${item.word.trim().toLowerCase()}`,
+                word: item.word.trim(),
+                meaning: item.meaning || '',
+                example: '',
+                tags: ['gcp-quiz'],
+                created_at: new Date(item.createdAt || Date.now()),
+                review_level: 1,
+                next_review: new Date(),
+                status: 'learning'
+              };
+              allWords.push(wObj);
+              addWordVariantsToMap(item.word, wObj, map);
+            }
+          });
+        }
+      }
+    } catch {
+      // Ignored
+    }
+
+    // 2. Fetch learning words from extension background
+    if (isExtensionContextValid()) {
+      try {
+        chrome.runtime.sendMessage({ action: 'GET_LEARNING_WORDS' }, (res) => {
+          if (hasRuntimeError()) {
+            if (map.size > 0) {
+              setLearningWords(allWords);
+              wordMapRef.current = map;
+              setTimeout(() => scanAndHighlight(), 50);
+            }
+            return;
+          }
+          if (res && res.ok && Array.isArray(res.words)) {
+            res.words.forEach((w: Word) => {
+              allWords.push(w);
+              addWordVariantsToMap(w.word, w, map);
+            });
+          }
+          setLearningWords(allWords);
+          wordMapRef.current = map;
+          if (map.size > 0) {
+            setTimeout(() => {
+              scanAndHighlight();
+            }, 50);
+          }
+        });
+      } catch {
+        if (map.size > 0) {
+          setLearningWords(allWords);
+          wordMapRef.current = map;
+          setTimeout(() => scanAndHighlight(), 50);
+        }
+      }
+    } else if (map.size > 0) {
+      setLearningWords(allWords);
+      wordMapRef.current = map;
+      setTimeout(() => scanAndHighlight(), 50);
+    }
+  }, [scanAndHighlight]);
+
+  // Load settings and words on mount, listen for storage and focus
+  useEffect(() => {
+    let listening = false;
+    const onStorageChanged = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
+      if (!isExtensionContextValid()) return;
+      if (area === 'sync') {
+        if (changes.enable_passive_highlight !== undefined) {
+          const newVal = changes.enable_passive_highlight.newValue !== false;
+          setEnabled(newVal);
+          if (!newVal) {
+            document.querySelectorAll('.engext-passive-word').forEach(el => {
+              const parent = el.parentNode;
+              if (parent) {
+                parent.replaceChild(document.createTextNode(el.textContent || ''), el);
+              }
+            });
+            setActiveWord(null);
+          }
+        }
+        if (changes.language !== undefined) {
+          setLang(changes.language.newValue === 'en' ? 'en' : 'vi');
+        }
+      }
+      if (area === 'local' && changes.last_vocab_updated_at !== undefined) {
+        refreshWords();
+      }
+    };
+
+    try {
+      let headStyle = document.getElementById('engext-passive-head-style') as HTMLStyleElement | null;
+      if (!headStyle) {
+        headStyle = document.createElement('style');
+        headStyle.id = 'engext-passive-head-style';
+        headStyle.textContent = `
+          .engext-passive-word {
+            border-bottom: 2px dashed #9333ea !important;
+            background-color: rgba(168, 85, 247, 0.08) !important;
+            border-radius: 3px !important;
+            padding: 0 2px !important;
+            margin: 0 !important;
+            cursor: pointer !important;
+            transition: all 0.2s ease !important;
+            color: inherit !important;
+            text-decoration: none !important;
+            font-weight: 500 !important;
+            box-shadow: none !important;
+            display: inline !important;
+          }
+          .engext-passive-word:hover {
+            border-bottom: 2px solid #7c3aed !important;
+            background-color: rgba(168, 85, 247, 0.2) !important;
+            border-radius: 3px !important;
+          }
+          .engext-word-just-mastered {
+            background-color: rgba(34, 197, 94, 0.15) !important;
+            border-bottom: none !important;
+            transition: background-color 1s ease !important;
+          }
+        `;
+        document.head.appendChild(headStyle);
+      }
+
+      if (chrome.storage?.sync) {
+        chrome.storage.sync.get({ enable_passive_highlight: true, language: 'vi' }, (items) => {
+          if (hasRuntimeError()) return;
+          setEnabled(items.enable_passive_highlight !== false);
+          setLang(items.language === 'en' ? 'en' : 'vi');
+        });
+        chrome.storage.onChanged.addListener(onStorageChanged);
+        listening = true;
+      }
+    } catch {
+      // Ignored
+    }
+
+    refreshWords();
+
+    const onFocus = () => {
+      refreshWords();
+    };
+    window.addEventListener('focus', onFocus);
+
+    const onWindowStorage = (e: StorageEvent) => {
+      if (e.key === 'gcp_user_vocab') {
+        refreshWords();
+      }
+    };
+    window.addEventListener('storage', onWindowStorage);
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('storage', onWindowStorage);
+      if (listening) {
+        try { chrome.storage.onChanged.removeListener(onStorageChanged); } catch { /* invalidated */ }
+      }
+    };
+  }, [refreshWords]);
+
   // Initial scan and debounced mutation observer
   useEffect(() => {
     if (!enabled || learningWords.length === 0) return;
 
     const timer = setTimeout(() => {
       scanAndHighlight();
-    }, 800);
+    }, 200);
 
     let observerTimer: ReturnType<typeof setTimeout> | null = null;
     const observer = new MutationObserver(() => {
       if (observerTimer) clearTimeout(observerTimer);
       observerTimer = setTimeout(() => {
         scanAndHighlight();
-      }, 1500);
+      }, 250);
     });
 
     observer.observe(document.body, { childList: true, subtree: true });
@@ -190,23 +334,64 @@ export const PassiveHighlightManager: React.FC = () => {
     };
   }, [enabled, learningWords, scanAndHighlight]);
 
-  // Handle click on highlighted words
+  // Handle both hover and click on highlighted words
   useEffect(() => {
+    let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+    let leaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const showTooltipForEl = (target: HTMLElement) => {
+      const wordId = target.dataset.wordId;
+      const text = target.textContent?.trim().toLowerCase() || '';
+      const found = (wordId ? learningWords.find(w => w.id === wordId) : null) || wordMapRef.current.get(text);
+      if (found) {
+        const rect = target.getBoundingClientRect();
+        setActiveWord(found);
+        setTooltipPos({
+          x: Math.max(10, Math.min(window.innerWidth - 300, rect.left + rect.width / 2 - 140)),
+          y: rect.bottom + 8 + window.scrollY,
+        });
+      }
+    };
+
+    const handleMouseOver = (e: MouseEvent) => {
+      if ((e.target as HTMLElement)?.closest('.engext-passive-tooltip')) {
+        if (leaveTimer) clearTimeout(leaveTimer);
+        leaveTimer = null;
+        return;
+      }
+      const target = (e.target as HTMLElement)?.closest('.engext-passive-word') as HTMLElement | null;
+      if (target && target.dataset.wordId) {
+        if (leaveTimer) clearTimeout(leaveTimer);
+        leaveTimer = null;
+        if (hoverTimer) clearTimeout(hoverTimer);
+        hoverTimer = setTimeout(() => {
+          showTooltipForEl(target);
+        }, 180);
+      }
+    };
+
+    const handleMouseOut = (e: MouseEvent) => {
+      const current = e.target as HTMLElement;
+      if (!current?.closest('.engext-passive-word, .engext-passive-tooltip')) return;
+      const related = e.relatedTarget as HTMLElement | null;
+      if (related?.closest('.engext-passive-tooltip') || related?.closest('.engext-passive-word')) {
+        return;
+      }
+      if (hoverTimer) clearTimeout(hoverTimer);
+      if (leaveTimer) clearTimeout(leaveTimer);
+      leaveTimer = setTimeout(() => {
+        setActiveWord(null);
+      }, 300);
+    };
+
     const handleMouseClick = (e: MouseEvent) => {
       const target = (e.target as HTMLElement)?.closest('.engext-passive-word') as HTMLElement | null;
       if (target && target.dataset.wordId) {
-        const wordId = target.dataset.wordId;
-        const found = learningWords.find(w => w.id === wordId);
-        if (found) {
-          const rect = target.getBoundingClientRect();
-          setActiveWord(found);
-          setTooltipPos({
-            x: Math.max(10, Math.min(window.innerWidth - 300, rect.left + rect.width / 2 - 140)),
-            y: rect.bottom + 8 + window.scrollY,
-          });
-          e.stopPropagation();
-          return;
-        }
+        if (hoverTimer) clearTimeout(hoverTimer);
+        if (leaveTimer) clearTimeout(leaveTimer);
+        showTooltipForEl(target);
+        e.stopPropagation();
+        return;
       }
 
       // If clicked outside tooltip, close it
@@ -216,8 +401,17 @@ export const PassiveHighlightManager: React.FC = () => {
       }
     };
 
+    document.addEventListener('mouseover', handleMouseOver);
+    document.addEventListener('mouseout', handleMouseOut);
     document.addEventListener('click', handleMouseClick);
-    return () => document.removeEventListener('click', handleMouseClick);
+
+    return () => {
+      if (hoverTimer) clearTimeout(hoverTimer);
+      if (leaveTimer) clearTimeout(leaveTimer);
+      document.removeEventListener('mouseover', handleMouseOver);
+      document.removeEventListener('mouseout', handleMouseOut);
+      document.removeEventListener('click', handleMouseClick);
+    };
   }, [learningWords]);
 
   const handleMarkMastered = (e: React.MouseEvent) => {
@@ -240,33 +434,40 @@ export const PassiveHighlightManager: React.FC = () => {
     }
   };
 
-  if (!enabled || !activeWord || !tooltipPos) return null;
+  if (!enabled) return null;
 
   return (
     <>
       <style>{`
         .engext-passive-word {
-          border-bottom: 2px dotted #8b5cf6 !important;
-          background-color: rgba(139, 92, 246, 0.08) !important;
-          border-radius: 2px !important;
+          border-bottom: 2px dashed #9333ea !important;
+          background-color: rgba(168, 85, 247, 0.08) !important;
+          border-radius: 3px !important;
+          padding: 0 2px !important;
+          margin: 0 !important;
           cursor: pointer !important;
           transition: all 0.2s ease !important;
           color: inherit !important;
           text-decoration: none !important;
           font-weight: 500 !important;
+          box-shadow: none !important;
+          display: inline !important;
         }
         .engext-passive-word:hover {
-          background-color: rgba(139, 92, 246, 0.22) !important;
-          border-bottom: 2px solid #8b5cf6 !important;
+          border-bottom: 2px solid #7c3aed !important;
+          background-color: rgba(168, 85, 247, 0.2) !important;
+          border-radius: 3px !important;
         }
         .engext-word-just-mastered {
-          background-color: rgba(34, 197, 94, 0.2) !important;
+          background-color: rgba(34, 197, 94, 0.15) !important;
+          border-bottom: none !important;
           transition: background-color 1s ease !important;
         }
       `}</style>
 
-      <div
-        className="engext-passive-tooltip"
+      {activeWord && tooltipPos && (
+        <div
+          className="engext-passive-tooltip"
         style={{
           position: 'absolute',
           left: tooltipPos.x,
@@ -357,8 +558,38 @@ export const PassiveHighlightManager: React.FC = () => {
           </div>
         )}
 
-        {/* Mark Mastered Button */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 8 }}>
+        {/* Footer: Turn off quick option & Mark Mastered */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 8 }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (chrome.storage?.sync) {
+                chrome.storage.sync.set({ enable_passive_highlight: false });
+              }
+              setEnabled(false);
+              document.querySelectorAll('.engext-passive-word').forEach(el => {
+                const parent = el.parentNode;
+                if (parent) {
+                  parent.replaceChild(document.createTextNode(el.textContent || ''), el);
+                }
+              });
+              setActiveWord(null);
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#94a3b8',
+              cursor: 'pointer',
+              fontSize: 10.5,
+              padding: '2px 0',
+              textDecoration: 'underline',
+              opacity: 0.85,
+            }}
+            title={lang === 'vi' ? 'Tắt tính năng tự động gạch chân từ đang học (bật lại được trong Cài đặt)' : 'Turn off passive word highlight (can re-enable in Settings)'}
+          >
+            {lang === 'vi' ? 'Tắt gạch chân từ' : 'Turn off highlight'}
+          </button>
+
           <button
             onClick={handleMarkMastered}
             style={{
@@ -381,6 +612,7 @@ export const PassiveHighlightManager: React.FC = () => {
           </button>
         </div>
       </div>
-    </>
-  );
+    )}
+  </>
+);
 };

@@ -357,6 +357,13 @@ export async function deleteGrammarNote(id: string) {
 }
 
 export async function triggerAutoSync() {
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+    try {
+      chrome.storage.local.set({ last_vocab_updated_at: Date.now() });
+    } catch {
+      // ignore
+    }
+  }
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
     const settings = await getSettings();
     if (!settings.github_repo || !settings.github_token) return;

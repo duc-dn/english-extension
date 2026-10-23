@@ -286,9 +286,9 @@ export const SettingsPage: React.FC = () => {
 
           <Form.Item
             name="enable_passive_highlight"
-            label={currentLang === 'vi' ? 'Highlight từ đang học khi đọc web (Passive Reading)' : 'Highlight learning words while browsing'}
+            label={currentLang === 'vi' ? 'Gạch chân mờ từ đang học khi đọc web (Passive Highlighting)' : 'Subtle dashed highlight for learning words'}
             valuePropName="checked"
-            tooltip={currentLang === 'vi' ? 'Tự động gạch chân và hiện tooltip các từ bạn đang học khi lướt web.' : 'Underline and show tooltip for learning words in web pages.'}
+            tooltip={currentLang === 'vi' ? 'Tự động gạch chân nét đứt mờ các từ bạn đang học trong SRS khi lướt web. Rê chuột vào để xem nghĩa nhanh.' : 'Underline words you are learning in SRS with a subtle dashed line when browsing.'}
           >
             <Switch />
           </Form.Item>
