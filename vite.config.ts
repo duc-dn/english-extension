@@ -38,7 +38,7 @@ const manifest = defineManifest({
         "default": "Ctrl+Shift+E",
         "mac": "Command+Shift+E"
       },
-      "description": "Open English Extension Side Panel"
+      "description": "Toggle English Extension Side Panel"
     }
   }
 })

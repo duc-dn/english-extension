@@ -14,52 +14,42 @@ import { TodoPage } from './pages/TodoPage';
 import { CompactView } from './components/CompactView';
 import './App.css';
 
+const detectMode = (): 'popup' | 'sidepanel' | 'dashboard' => {
+  const params = new URLSearchParams(window.location.search);
+  const modeParam = params.get('mode');
+  if (modeParam === 'popup') return 'popup';
+  if (modeParam === 'sidepanel') return 'sidepanel';
+  if (modeParam === 'dashboard') return 'dashboard';
+  
+  // If we have a hash route (e.g. #/settings or #/todos), it is the dashboard
+  if (window.location.hash && window.location.hash.length > 1) {
+    return 'dashboard';
+  }
+  
+  // Fallback detection using chrome extension API
+  if (typeof chrome !== 'undefined' && chrome.extension?.getViews) {
+    try {
+      const views = chrome.extension.getViews({ type: 'popup' });
+      if (views.includes(window)) {
+        return 'popup';
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+  
+  // In extension context without a hash route, default to sidepanel
+  return 'sidepanel';
+};
+
 function App() {
   const [themeMode, setThemeMode] = useState<'system'|'light'|'dark'>('light');
-  const [mode, setMode] = useState<'popup' | 'sidepanel' | 'dashboard'>('dashboard');
+  const [mode, setMode] = useState<'popup' | 'sidepanel' | 'dashboard'>(detectMode);
 
   useEffect(() => {
-    const detectMode = () => {
-      const params = new URLSearchParams(window.location.search);
-      const modeParam = params.get('mode');
-      if (modeParam === 'popup') return 'popup';
-      if (modeParam === 'sidepanel') return 'sidepanel';
-      if (modeParam === 'dashboard') return 'dashboard';
-      
-      // If we have a hash route (e.g. #/settings), it is the dashboard
-      if (window.location.hash) {
-        return 'dashboard';
-      }
-      
-      // Fallback detection using chrome extension API
-      if (typeof chrome !== 'undefined' && chrome.extension) {
-        try {
-          const views = chrome.extension.getViews({ type: 'popup' });
-          if (views.includes(window)) {
-            return 'popup';
-          }
-        } catch (e) {
-          // ignore
-        }
-      }
-      
-      // Secondary fallback inside extension context
-      if (typeof chrome !== 'undefined' && chrome.extension) {
-        if (window.innerWidth < 500) {
-          return 'sidepanel';
-        }
-      }
-      
-      return 'dashboard';
-    };
-
-    const currentMode = detectMode();
-    setMode(currentMode);
-
-    const body = document.body;
-    const html = document.documentElement;
-
     const applyClasses = (m: 'popup' | 'sidepanel' | 'dashboard') => {
+      const body = document.body;
+      const html = document.documentElement;
       if (m === 'popup') {
         body.classList.add('popup-mode');
         body.classList.remove('sidepanel-mode', 'dashboard-mode');
@@ -78,7 +68,7 @@ function App() {
       }
     };
 
-    applyClasses(currentMode);
+    applyClasses(mode);
 
     const handleResize = () => {
       const params = new URLSearchParams(window.location.search);
@@ -91,7 +81,120 @@ function App() {
 
     window.addEventListener('resize', handleResize);
     return () => { window.removeEventListener('resize', handleResize); };
-  }, []);
+  }, [mode]);
+
+  // Handle side panel port connection, programmatic close, and keyboard shortcut toggle
+  useEffect(() => {
+    if (mode !== 'sidepanel' && mode !== 'popup') return;
+
+    let isUnmounted = false;
+    let port: chrome.runtime.Port | null = null;
+    let heartbeatTimer: any = null;
+
+    const connectPort = () => {
+      if (isUnmounted) return;
+      if (typeof chrome === 'undefined' || !chrome.runtime?.connect) return;
+
+      try {
+        port = chrome.runtime.connect({ name: 'sidepanel' });
+
+        port.onMessage.addListener((msg) => {
+          if (msg?.action === 'CLOSE_SIDE_PANEL') {
+            window.close();
+          }
+        });
+
+        port.onDisconnect.addListener(() => {
+          port = null;
+          if (!isUnmounted) {
+            // Reconnect if service worker restarted while panel is open
+            setTimeout(connectPort, 200);
+          }
+        });
+
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = setInterval(() => {
+          try {
+            port?.postMessage({ type: 'HEARTBEAT' });
+          } catch {}
+        }, 25000);
+      } catch (e) {
+        console.warn("Side panel port connect failed:", e);
+      }
+    };
+
+    connectPort();
+
+    const messageListener = (msg: any) => {
+      if (msg?.action === 'CLOSE_SIDE_PANEL') {
+        window.close();
+      }
+    };
+    if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+      chrome.runtime.onMessage.addListener(messageListener);
+    }
+
+    let customShortcutKey = 'e';
+    let customModifiers = { metaOrCtrl: true, shift: true, alt: false };
+
+    if (typeof chrome !== 'undefined' && chrome.commands?.getAll) {
+      try {
+        chrome.commands.getAll((commands) => {
+          const cmd = commands.find(c => c.name === 'open_side_panel');
+          if (cmd?.shortcut) {
+            const parts = cmd.shortcut.toLowerCase().split('+');
+            const lastKey = parts[parts.length - 1];
+            customShortcutKey = lastKey;
+            customModifiers = {
+              metaOrCtrl: parts.includes('command') || parts.includes('ctrl') || parts.includes('macctrl'),
+              shift: parts.includes('shift'),
+              alt: parts.includes('alt') || parts.includes('option')
+            };
+          }
+        });
+      } catch {
+        // ignore
+      }
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+      const keyLower = e.key.toLowerCase();
+      const codeMatches = e.code.toLowerCase() === `key${customShortcutKey.toLowerCase()}`;
+
+      // Default Cmd/Ctrl + Shift + E
+      const isDefault = isCmdOrCtrl && e.shiftKey && (keyLower === 'e' || e.code === 'KeyE');
+
+      // Custom shortcut if reconfigured in chrome://extensions/shortcuts
+      const isCustom = 
+        (!customModifiers.metaOrCtrl || isCmdOrCtrl) &&
+        (!customModifiers.shift || e.shiftKey) &&
+        (!customModifiers.alt || e.altKey) &&
+        (keyLower === customShortcutKey.toLowerCase() || codeMatches);
+
+      if (isDefault || isCustom) {
+        e.preventDefault();
+        e.stopPropagation();
+        window.close();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+
+    return () => {
+      isUnmounted = true;
+      clearInterval(heartbeatTimer);
+      window.removeEventListener('keydown', handleKeyDown, true);
+      if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+        chrome.runtime.onMessage.removeListener(messageListener);
+      }
+      if (port) {
+        try {
+          port.disconnect();
+        } catch {}
+      }
+    };
+  }, [mode]);
 
   useEffect(() => {
     const unsubscribe = subscribeToSettings((settings) => {

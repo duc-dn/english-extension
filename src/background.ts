@@ -164,14 +164,76 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
-// Keyboard shortcut to open side panel
+// Track open side panel ports for toggle support
+const openSidePanelPorts = new Set<chrome.runtime.Port>();
+let lastPortDisconnectAt = 0;
+let lastCommandToggleAt = 0;
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === 'sidepanel') {
+    openSidePanelPorts.add(port);
+
+    port.onDisconnect.addListener(() => {
+      openSidePanelPorts.delete(port);
+      lastPortDisconnectAt = Date.now();
+    });
+  }
+});
+
+function closeActiveSidePanels(tab?: chrome.tabs.Tab) {
+  for (const port of openSidePanelPorts) {
+    try {
+      port.postMessage({ action: 'CLOSE_SIDE_PANEL' });
+    } catch {
+      openSidePanelPorts.delete(port);
+    }
+  }
+
+  try {
+    chrome.runtime.sendMessage({ action: 'CLOSE_SIDE_PANEL' }).catch(() => {});
+  } catch {}
+
+  if (typeof (chrome.sidePanel as any)?.close === 'function') {
+    try {
+      if (tab?.windowId) {
+        (chrome.sidePanel as any).close({ windowId: tab.windowId });
+      } else if (tab?.id) {
+        (chrome.sidePanel as any).close({ tabId: tab.id });
+      }
+    } catch {}
+  }
+}
+
+// Keyboard shortcut to toggle side panel (Cmd+Shift+E on Mac, Ctrl+Shift+E on Win/Linux)
 chrome.commands.onCommand.addListener((command, tab) => {
-  if (command === 'open_side_panel') {
+  if (command !== 'open_side_panel') return;
+
+  const now = Date.now();
+  // Debounce rapid repeat triggers
+  if (now - lastCommandToggleAt < 250) {
+    return;
+  }
+  // If closed within the last 400ms (e.g. by keydown inside the side panel), don't reopen
+  if (now - lastPortDisconnectAt < 400) {
+    return;
+  }
+  lastCommandToggleAt = now;
+
+  // Determine synchronously if side panel is open
+  const isCurrentlyOpen = openSidePanelPorts.size > 0;
+
+  if (isCurrentlyOpen) {
+    closeActiveSidePanels(tab);
+  } else {
+    // Open synchronously to preserve user gesture
     if (tab && tab.id) {
-      chrome.sidePanel.open({ tabId: tab.id })
-        .catch((err) => {
-          console.error("Failed to open side panel via keyboard shortcut:", err);
-        });
+      chrome.sidePanel.open({ tabId: tab.id }).catch((err) => {
+        console.error("Failed to open side panel via keyboard shortcut:", err);
+      });
+    } else if (tab && tab.windowId) {
+      chrome.sidePanel.open({ windowId: tab.windowId }).catch((err) => {
+        console.error("Failed to open side panel via keyboard shortcut:", err);
+      });
     }
   }
 });
@@ -179,6 +241,11 @@ chrome.commands.onCommand.addListener((command, tab) => {
 const chatSelectionRevisionByTab = new Map<number, number>();
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'SIDE_PANEL_CLOSED_BY_SHORTCUT') {
+    lastPortDisconnectAt = Date.now();
+    return;
+  }
+
   if (request.action === 'PASTE_AI_INTO_GOOGLE_DOCS') {
     const tabId = request.tabId;
     (async () => {
