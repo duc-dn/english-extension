@@ -47,6 +47,7 @@ Whether reading research papers, working inside **Google Docs**, or watching vid
 * **Context-Aware Chat**: Select text on any web page to automatically attach it as context for your next prompt.
 * **Google Docs Formatted Export**: Copy AI responses formatted as markdown or structured rich text (headings, bold, lists, and tables) directly into Google Docs via `Cmd + V`.
 * **Flexible Provider Support**:
+  * 🪐 **Antigravity Google sign-in** (OAuth via the extension's native companion)
   * 🌐 **Google Gemini** (Gemini 1.5 Pro / Flash)
   * 🟢 **OpenAI Platform** (GPT-4o, GPT-4o-mini, etc.)
   * 🦙 **Ollama** (Local LLMs without cloud dependency: Llama 3, Mistral, Qwen)
@@ -136,6 +137,7 @@ Settings ➔ AI Configuration ➔ Select Provider
 
 | Provider | Requirement | Notes |
 | :--- | :--- | :--- |
+| **Antigravity** | Native companion installed once | Select Antigravity in Settings, click **Connect Google**, complete OAuth in the opened tab, then choose a model. The companion stores and refreshes tokens locally. 9router is not required. |
 | **Google Gemini** | Google AI Studio API Key | Ultra-fast responses with generous free limits. |
 | **OpenAI API** | OpenAI Platform Secret Key | Full access to GPT-4o, GPT-4o-mini, and custom endpoints. |
 | **DeepSeek** | DeepSeek API Key / Proxy | Cost-effective, high-reasoning translation models. |
@@ -151,6 +153,19 @@ To sign in using your existing ChatGPT account without paying for API keys:
 2. Reload the extension in `chrome://extensions`.
 3. In Extension Settings, click **Continue with ChatGPT**, complete the authorization in your browser, and click **Auto-detect Models**.
 4. The local helper runs securely over `127.0.0.1` via Chrome Native Messaging with owner-only access permissions (`~/.config/english-extension/chatgpt.json`).
+
+### Setting Up Antigravity Sign-In (macOS Chrome)
+1. Configure your own Google OAuth desktop client in `~/.config/english-extension/oauth-client.json` (create the directory if needed):
+   ```json
+   { "clientId": "YOUR_CLIENT_ID", "clientSecret": "YOUR_CLIENT_SECRET" }
+   ```
+   Keep this file out of Git and restrict it to your user with `chmod 600 ~/.config/english-extension/oauth-client.json`. For a companion started directly from a shell, `ENGLISH_EXTENSION_GOOGLE_CLIENT_ID` and `ENGLISH_EXTENSION_GOOGLE_CLIENT_SECRET` may be used instead.
+2. In the project directory, install the extension's native host once (or rerun after updating an older host):
+   ```bash
+   npm run ai:install-host -- <extension-id>
+   ```
+3. Reload the extension in `chrome://extensions`. If an older companion is still listening on port 39671, stop it before reconnecting.
+4. In **Settings → Antigravity**, click **Connect Google**, finish authorization, and select a model. Google OAuth tokens are stored in `~/.config/english-extension/antigravity.json` with owner-only permissions.
 
 ---
 

@@ -2,6 +2,7 @@ import { getSettings, isAIConfigured, type Settings } from './settings';
 import { message } from 'antd';
 import { chatGPTResponse } from './chatgptCompanion';
 import { hasRuntimeError } from './extensionContext';
+import { callAntigravity } from './antigravity';
 
 export interface TranslationResult {
   word: string;
@@ -408,6 +409,10 @@ async function callAI(
   const settings = { ...currentSettings, ...overrideSettings };
   const provider = settings.ai_provider;
 
+  if (provider === 'antigravity') {
+    return callAntigravity(settings, messages);
+  }
+
   if (provider === 'gemini') {
     if (!settings.gemini_api_key) {
       throw new Error('Gemini API Key is not configured.');
@@ -762,6 +767,9 @@ async function callAI(
 
 function getMissingConfigMessage(settings: any, featureName: string): string | null {
   const provider = settings.ai_provider;
+  if (provider === 'antigravity') {
+    return null;
+  }
   if (provider === 'none' || provider === 'gemini') {
     if (!settings.gemini_api_key) {
       return `Vui lòng cấu hình Gemini API Key để sử dụng tính năng ${featureName}.`;
@@ -843,6 +851,7 @@ export async function testAIConnection(customSettings?: Partial<Settings>): Prom
 
     let modelName = '';
     if (provider === 'gemini') modelName = settings.gemini_model || 'gemini-2.5-flash-lite';
+    else if (provider === 'antigravity') modelName = settings.antigravity_model || 'gemini-3.8-flash';
     else if (provider === 'deepseek') {
       const authType = settings.deepseek_auth_type || (settings.deepseek_api_key ? 'api_key' : 'local_proxy');
       if (authType === 'local_proxy') {

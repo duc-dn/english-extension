@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { createAntigravity } from './antigravity.mjs';
 
 const ISSUER = 'https://auth.openai.com';
 const RESOURCE = 'https://api.openai.com/v1';
@@ -16,6 +17,7 @@ let saved;
 let pending;
 let loginError = '';
 let loginGeneration = 0;
+let antigravity;
 
 async function persist() {
   await mkdir(DATA_DIR, { recursive: true, mode: 0o700 });
@@ -39,7 +41,7 @@ function send(res, status, data) {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
     'access-control-allow-origin': res.origin || '',
-    'access-control-allow-headers': 'authorization, content-type',
+    'access-control-allow-headers': 'authorization, content-type, x-extension-origin',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     vary: 'Origin',
   });
@@ -192,24 +194,38 @@ async function aiRequest(path, init) {
   return response;
 }
 
-async function readBody(req) {
+async function readBody(req, maxLength = 100000) {
   let text = '';
   for await (const chunk of req) {
     text += chunk;
-    if (text.length > 100000) throw new Error('Request too large');
+    if (text.length > maxLength) throw new Error('Request too large');
   }
   return JSON.parse(text || '{}');
 }
 
 async function respond(req, res) {
   const origin = req.headers.origin || '';
-  if (!/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) { res.writeHead(403).end(); return; }
-  res.origin = origin;
+  const claimedOrigin = req.headers['x-extension-origin'] || '';
+  if ((origin && !/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) ||
+      (claimedOrigin && !/^chrome-extension:\/\/[a-p]{32}$/.test(claimedOrigin)) ||
+      (origin && claimedOrigin && origin !== claimedOrigin) ||
+      (!origin && !claimedOrigin)) { res.writeHead(403).end(); return; }
+  res.origin = origin || claimedOrigin;
   if (req.method === 'OPTIONS') { send(res, 204, {}); return; }
   if (req.headers.authorization !== `Bearer ${saved.pairingToken}`) { send(res, 401, { error: 'Invalid pairing code' }); return; }
   try {
     if (req.method === 'GET' && req.url === '/status') {
       send(res, 200, { status: pending ? 'connecting' : saved.accessToken ? 'connected' : 'disconnected', email: saved.email, name: saved.name, sharing: !!saved.accessToken, error: loginError });
+    } else if (req.method === 'GET' && req.url === '/antigravity/status') {
+      send(res, 200, antigravity.status());
+    } else if (req.method === 'POST' && req.url === '/antigravity/login') {
+      send(res, 200, await antigravity.login());
+    } else if (req.method === 'POST' && req.url === '/antigravity/logout') {
+      send(res, 200, await antigravity.logout());
+    } else if (req.method === 'GET' && req.url === '/antigravity/models') {
+      send(res, 200, await antigravity.models());
+    } else if (req.method === 'POST' && req.url === '/antigravity/response') {
+      send(res, 200, await antigravity.response(await readBody(req, 10_000_000)));
     } else if (req.method === 'POST' && req.url === '/login') {
       const { newAccount } = await readBody(req);
       send(res, 200, { url: await startLogin({ newAccount: newAccount === true }) });
@@ -247,7 +263,8 @@ async function respond(req, res) {
 }
 
 await load();
+antigravity = await createAntigravity(DATA_DIR);
 createServer((req, res) => { void respond(req, res); }).listen(PORT, '127.0.0.1', () => {
-  console.log(`English Extension ChatGPT companion: http://127.0.0.1:${PORT}`);
+  console.log(`English Extension AI companion: http://127.0.0.1:${PORT}`);
   console.log(`Pairing code: ${saved.pairingToken}`);
 });

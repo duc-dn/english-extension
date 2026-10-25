@@ -3,6 +3,7 @@ import { syncToGithub } from './lib/github';
 import { subscribeToSettings } from './lib/settings';
 import { polishWritingWithAI } from './lib/translator';
 import { checkAndNotifyPendingTodos, updateChromeExtensionBadge } from './lib/todo';
+import { closeSidePanel } from './lib/sidePanel';
 
 function setupTodoAlarms(intervalMinutes: number = 15) {
   if (typeof chrome !== 'undefined' && chrome.alarms) {
@@ -52,24 +53,24 @@ async function startChatGPTCompanion(): Promise<{ pairingToken: string }> {
     reply = await chrome.runtime.sendNativeMessage('com.english_extension.chatgpt', { action: 'start' });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Không gọi được ChatGPT native host: ${detail}. Nếu host chưa được cài, chạy npm run chatgpt:install-host -- ${chrome.runtime.id}`);
+    throw new Error(`Không gọi được AI native host: ${detail}. Nếu host chưa được cài, chạy npm run ai:install-host -- ${chrome.runtime.id}`);
   }
-  if (!reply?.ok || !reply.pairingToken) throw new Error(reply?.error || 'Không khởi động được ChatGPT companion.');
+  if (!reply?.ok || !reply.pairingToken) throw new Error(reply?.error || 'Không khởi động được AI companion.');
   await chrome.storage.local.set({ chatgpt_pairing_code: reply.pairingToken });
   return { pairingToken: reply.pairingToken };
 }
 
 async function requestChatGPTCompanion(request: { path: string; body?: unknown; token: string }) {
-  const paths = ['/status', '/login', '/logout', '/models', '/response'];
+  const paths = ['/status', '/login', '/logout', '/models', '/response', '/antigravity/status', '/antigravity/login', '/antigravity/logout', '/antigravity/models', '/antigravity/response'];
   if (!paths.includes(request.path) || typeof request.token !== 'string' || request.token.length < 20) {
-    throw new Error('Yêu cầu ChatGPT không hợp lệ.');
+    throw new Error('Yêu cầu AI companion không hợp lệ.');
   }
-  const method = ['/login', '/logout', '/response'].includes(request.path) ? 'POST' : 'GET';
+  const method = ['/login', '/logout', '/response', '/antigravity/login', '/antigravity/logout', '/antigravity/response'].includes(request.path) ? 'POST' : 'GET';
   const run = (token: string) => fetch(`http://127.0.0.1:39671${request.path}`, {
       method,
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-extension-origin': chrome.runtime.getURL('').replace(/\/$/, '') },
       ...(method === 'POST' ? { body: JSON.stringify(request.body || {}) } : {}),
-      signal: AbortSignal.timeout(request.path === '/response' ? 130000 : 30000),
+      signal: AbortSignal.timeout(request.path.endsWith('/response') ? 130000 : 30000),
     });
   let response: Response;
   try { response = await run(request.token); }
@@ -81,7 +82,10 @@ async function requestChatGPTCompanion(request: { path: string; body?: unknown; 
     const started = await startChatGPTCompanion();
     response = await run(started.pairingToken);
   }
-  const result = await response.json();
+  const responseText = await response.text();
+  let result: { error?: string };
+  try { result = JSON.parse(responseText); }
+  catch { throw new Error(`AI companion HTTP ${response.status}: ${responseText || 'empty response'}`); }
   if (!response.ok) throw new Error(result.error || `Companion HTTP ${response.status}`);
   return result;
 }
@@ -135,6 +139,7 @@ if (typeof chrome !== 'undefined') {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.sync.remove('antigravity_api_key').catch(() => {});
   setupProxyHeaderRules();
   setupTodoAlarms();
   updateChromeExtensionBadge().catch(() => {});
@@ -180,30 +185,6 @@ chrome.runtime.onConnect.addListener((port) => {
   }
 });
 
-function closeActiveSidePanels(tab?: chrome.tabs.Tab) {
-  for (const port of openSidePanelPorts) {
-    try {
-      port.postMessage({ action: 'CLOSE_SIDE_PANEL' });
-    } catch {
-      openSidePanelPorts.delete(port);
-    }
-  }
-
-  try {
-    chrome.runtime.sendMessage({ action: 'CLOSE_SIDE_PANEL' }).catch(() => {});
-  } catch {}
-
-  if (typeof (chrome.sidePanel as any)?.close === 'function') {
-    try {
-      if (tab?.windowId) {
-        (chrome.sidePanel as any).close({ windowId: tab.windowId });
-      } else if (tab?.id) {
-        (chrome.sidePanel as any).close({ tabId: tab.id });
-      }
-    } catch {}
-  }
-}
-
 // Keyboard shortcut to toggle side panel (Cmd+Shift+E on Mac, Ctrl+Shift+E on Win/Linux)
 chrome.commands.onCommand.addListener((command, tab) => {
   if (command !== 'open_side_panel') return;
@@ -223,7 +204,9 @@ chrome.commands.onCommand.addListener((command, tab) => {
   const isCurrentlyOpen = openSidePanelPorts.size > 0;
 
   if (isCurrentlyOpen) {
-    closeActiveSidePanels(tab);
+    closeSidePanel(tab?.windowId).catch((err) => {
+      console.error('Failed to close side panel via keyboard shortcut:', err);
+    });
   } else {
     // Open synchronously to preserve user gesture
     if (tab && tab.id) {
@@ -241,9 +224,12 @@ chrome.commands.onCommand.addListener((command, tab) => {
 const chatSelectionRevisionByTab = new Map<number, number>();
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'SIDE_PANEL_CLOSED_BY_SHORTCUT') {
-    lastPortDisconnectAt = Date.now();
-    return;
+  if (request.action === 'CLOSE_SIDE_PANEL_BY_SHORTCUT') {
+    lastCommandToggleAt = Date.now();
+    closeSidePanel(sender.tab?.windowId)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+    return true;
   }
 
   if (request.action === 'PASTE_AI_INTO_GOOGLE_DOCS') {

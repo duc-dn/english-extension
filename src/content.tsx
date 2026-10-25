@@ -145,7 +145,7 @@ const ContentApp: React.FC = () => {
                 setTriggerPosition(null);
               }
             }
-            if (changes.ai_provider || changes.gemini_api_key || changes.openai_api_key || changes.chatgpt_access_token || changes.ollama_url || changes.deepseek_api_key || changes.deepseek_web_token || changes.deepseek_auth_type || changes.deepseek_proxy_url) {
+            if (changes.ai_provider || changes.antigravity_model || changes.gemini_api_key || changes.openai_api_key || changes.chatgpt_access_token || changes.ollama_url || changes.deepseek_api_key || changes.deepseek_web_token || changes.deepseek_auth_type || changes.deepseek_proxy_url) {
               try {
                 getSettings().then((settings) => {
                   if (isExtensionContextValid()) setHasAiProvider(isAIConfigured(settings));

@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "chatgpt:companion": "node companion/server.mjs",
-    "chatgpt:install-host": "node companion/install-native-host.mjs"
+    "chatgpt:install-host": "node companion/install-native-host.mjs",
+    "ai:install-host": "node companion/install-native-host.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.5",

@@ -83,9 +83,9 @@ function App() {
     return () => { window.removeEventListener('resize', handleResize); };
   }, [mode]);
 
-  // Handle side panel port connection, programmatic close, and keyboard shortcut toggle
+  // Track the side panel for the background shortcut toggle.
   useEffect(() => {
-    if (mode !== 'sidepanel' && mode !== 'popup') return;
+    if (mode !== 'sidepanel') return;
 
     let isUnmounted = false;
     let port: chrome.runtime.Port | null = null;
@@ -97,12 +97,6 @@ function App() {
 
       try {
         port = chrome.runtime.connect({ name: 'sidepanel' });
-
-        port.onMessage.addListener((msg) => {
-          if (msg?.action === 'CLOSE_SIDE_PANEL') {
-            window.close();
-          }
-        });
 
         port.onDisconnect.addListener(() => {
           port = null;
@@ -124,15 +118,6 @@ function App() {
     };
 
     connectPort();
-
-    const messageListener = (msg: any) => {
-      if (msg?.action === 'CLOSE_SIDE_PANEL') {
-        window.close();
-      }
-    };
-    if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
-      chrome.runtime.onMessage.addListener(messageListener);
-    }
 
     let customShortcutKey = 'e';
     let customModifiers = { metaOrCtrl: true, shift: true, alt: false };
@@ -175,7 +160,13 @@ function App() {
       if (isDefault || isCustom) {
         e.preventDefault();
         e.stopPropagation();
-        window.close();
+        if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+          chrome.runtime.sendMessage({ action: 'CLOSE_SIDE_PANEL_BY_SHORTCUT' })
+            .then((result: { ok?: boolean; error?: string }) => {
+              if (!result?.ok) console.error('Failed to close side panel via keyboard shortcut:', result?.error);
+            })
+            .catch((error) => console.error('Failed to close side panel via keyboard shortcut:', error));
+        }
       }
     };
 
@@ -185,9 +176,6 @@ function App() {
       isUnmounted = true;
       clearInterval(heartbeatTimer);
       window.removeEventListener('keydown', handleKeyDown, true);
-      if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
-        chrome.runtime.onMessage.removeListener(messageListener);
-      }
       if (port) {
         try {
           port.disconnect();

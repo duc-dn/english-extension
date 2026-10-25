@@ -1,10 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Layout, Button, Tooltip } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { 
   BookMarked, Layers, LayoutDashboard, Settings, BookOpen, 
   CheckSquare, ListTodo, Globe, Timer, Sun, Moon, Sparkles, ChevronRight,
-  BarChart3
+  BarChart3, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import { useSettings, saveSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
@@ -31,6 +31,13 @@ interface NavSection {
 }
 
 export const MainLayout: React.FC = () => {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem('english-space-sidebar-collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const navigate = useNavigate();
   const location = useLocation();
   const settings = useSettings();
@@ -133,6 +140,18 @@ export const MainLayout: React.FC = () => {
     saveSettings({ theme: isDark ? 'light' : 'dark' });
   };
 
+  const toggleSidebar = () => {
+    setSidebarCollapsed(previous => {
+      const next = !previous;
+      try {
+        window.localStorage.setItem('english-space-sidebar-collapsed', String(next));
+      } catch {
+        // The sidebar still works when storage is unavailable.
+      }
+      return next;
+    });
+  };
+
   return (
     <Layout style={{ minHeight: '100vh', background: 'transparent', position: 'relative' }}>
       <style>{`
@@ -142,11 +161,19 @@ export const MainLayout: React.FC = () => {
         .eng-sidebar-btn:hover {
           transform: translateX(2px);
         }
+        .eng-sidebar-btn:focus-visible,
+        .eng-sidebar-toggle:focus-visible {
+          outline: 2px solid #0284c7;
+          outline-offset: 2px;
+        }
       `}</style>
 
       <Sider 
         theme={isDark ? 'dark' : 'light'} 
         width={260}
+        collapsedWidth={72}
+        collapsed={sidebarCollapsed}
+        trigger={null}
         className="glass-sidebar"
         style={{ 
           position: 'relative', 
@@ -161,15 +188,17 @@ export const MainLayout: React.FC = () => {
         <div style={{ 
           display: 'flex', 
           alignItems: 'center', 
-          gap: 12,
-          margin: '18px 14px 14px 14px',
-          padding: '10px 12px',
+          justifyContent: sidebarCollapsed ? 'center' : 'space-between',
+          gap: 8,
+          margin: sidebarCollapsed ? '18px 8px 14px' : '18px 10px 14px',
+          padding: sidebarCollapsed ? 8 : '10px 8px',
           borderRadius: 14,
           background: isDark 
             ? 'linear-gradient(135deg, rgba(14, 165, 233, 0.12) 0%, rgba(56, 189, 248, 0.04) 100%)' 
             : 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
           border: isDark ? '1px solid rgba(56, 189, 248, 0.2)' : '1px solid rgba(14, 165, 233, 0.2)'
         }}>
+          {!sidebarCollapsed && <>
           <div style={{
             position: 'relative',
             width: 36,
@@ -211,13 +240,37 @@ export const MainLayout: React.FC = () => {
               ✦ AI Reading & SRS
             </span>
           </div>
+          </>}
+          <Tooltip title={sidebarCollapsed
+            ? (currentLang === 'vi' ? 'Mở thanh bên' : 'Expand sidebar')
+            : (currentLang === 'vi' ? 'Thu gọn thanh bên' : 'Collapse sidebar')}>
+            <button
+              type="button"
+              className="eng-sidebar-toggle"
+              onClick={toggleSidebar}
+              aria-label={sidebarCollapsed
+                ? (currentLang === 'vi' ? 'Mở thanh bên' : 'Expand sidebar')
+                : (currentLang === 'vi' ? 'Thu gọn thanh bên' : 'Collapse sidebar')}
+              aria-expanded={!sidebarCollapsed}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 36, height: 36, flexShrink: 0, cursor: 'pointer',
+                borderRadius: 10,
+                border: isDark ? '1px solid rgba(56, 189, 248, 0.25)' : '1px solid #bae6fd',
+                background: isDark ? 'rgba(14, 165, 233, 0.12)' : '#ffffff',
+                color: isDark ? '#7dd3fc' : '#0284c7',
+              }}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            </button>
+          </Tooltip>
         </div>
 
         {/* Modern Youthful Sidebar Navigation */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '4px 10px' }}>
           {navSections.map((section, sIdx) => (
             <div key={sIdx} style={{ marginBottom: 14 }}>
-              {section.title && (
+              {section.title && !sidebarCollapsed && (
                 <div style={{
                   padding: '6px 10px 4px 10px',
                   fontSize: '10px',
@@ -234,15 +287,19 @@ export const MainLayout: React.FC = () => {
                 {section.items.map((item) => {
                   const isSelected = location.pathname === item.key;
                   return (
-                    <div
-                      key={item.key}
+                    <Tooltip key={item.key} title={sidebarCollapsed ? `${item.label}${item.badge ? ` · ${item.badge}` : ''}` : undefined} placement="right">
+                    <button
+                      type="button"
                       onClick={() => navigate(item.key)}
+                      aria-label={sidebarCollapsed ? `${item.label}${item.badge ? `, ${item.badge}` : ''}` : undefined}
+                      aria-current={isSelected ? 'page' : undefined}
                       className="eng-sidebar-btn"
                       style={{
+                        width: '100%',
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '8px 10px',
+                        justifyContent: sidebarCollapsed ? 'center' : 'space-between',
+                        padding: sidebarCollapsed ? '8px' : '8px 10px',
                         borderRadius: 12,
                         cursor: 'pointer',
                         userSelect: 'none',
@@ -278,7 +335,7 @@ export const MainLayout: React.FC = () => {
                     >
                       {/* Active Indicator Bar */}
                       {isSelected && (
-                        <div
+                        <span
                           style={{
                             position: 'absolute',
                             left: 0,
@@ -293,8 +350,8 @@ export const MainLayout: React.FC = () => {
                       )}
 
                       {/* Icon Squircle + Label */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span
                           style={{
                             width: 32,
                             height: 32,
@@ -325,9 +382,9 @@ export const MainLayout: React.FC = () => {
                           }}
                         >
                           {item.icon}
-                        </div>
+                        </span>
 
-                        <span
+                        {!sidebarCollapsed && <span
                           style={{
                             fontSize: '13px',
                             fontWeight: isSelected ? 700 : 500,
@@ -342,11 +399,11 @@ export const MainLayout: React.FC = () => {
                           }}
                         >
                           {item.label}
-                        </span>
-                      </div>
+                        </span>}
+                      </span>
 
                       {/* Right side: Badge or Chevron */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      {!sidebarCollapsed && <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         {item.badge && (
                           <span
                             style={{
@@ -389,8 +446,9 @@ export const MainLayout: React.FC = () => {
                             strokeWidth={2.5}
                           />
                         )}
-                      </div>
-                    </div>
+                      </span>}
+                    </button>
+                    </Tooltip>
                   );
                 })}
               </div>
@@ -400,21 +458,23 @@ export const MainLayout: React.FC = () => {
         
         {/* Sidebar Footer Controls */}
         <div style={{
-          padding: '14px 14px',
+          padding: sidebarCollapsed ? '14px 10px' : '14px 14px',
           borderTop: isDark ? '1px solid rgba(56, 189, 248, 0.12)' : '1px solid #e0f2fe',
           display: 'flex',
           flexDirection: 'column',
           gap: 10,
           background: isDark ? 'rgba(12, 19, 34, 0.6)' : 'rgba(240, 249, 255, 0.5)'
         }}>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: sidebarCollapsed ? 'column' : 'row', gap: 8 }}>
             <Tooltip title={currentLang === 'vi' ? 'Đổi ngôn ngữ' : 'Change language'}>
               <Button
                 type="default"
                 onClick={() => saveSettings({ language: currentLang === 'vi' ? 'en' : 'vi' })}
+                aria-label={currentLang === 'vi' ? 'Đổi ngôn ngữ' : 'Change language'}
                 icon={<Globe size={14} color="#0284c7" />}
                 style={{
-                  flex: 1,
+                  flex: sidebarCollapsed ? undefined : 1,
+                  width: sidebarCollapsed ? '100%' : undefined,
                   borderRadius: 10,
                   borderColor: isDark ? 'rgba(14, 165, 233, 0.3)' : 'rgba(14, 165, 233, 0.25)',
                   background: isDark ? 'rgba(14, 165, 233, 0.1)' : 'rgba(14, 165, 233, 0.06)',
@@ -428,7 +488,7 @@ export const MainLayout: React.FC = () => {
                   fontSize: '12px'
                 }}
               >
-                {currentLang === 'vi' ? 'VI' : 'EN'}
+                {!sidebarCollapsed && (currentLang === 'vi' ? 'VI' : 'EN')}
               </Button>
             </Tooltip>
 
@@ -436,6 +496,9 @@ export const MainLayout: React.FC = () => {
               <Button
                 type="default"
                 onClick={toggleTheme}
+                aria-label={isDark
+                  ? (currentLang === 'vi' ? 'Chuyển giao diện Sáng' : 'Switch to Light')
+                  : (currentLang === 'vi' ? 'Chuyển giao diện Tối' : 'Switch to Dark')}
                 icon={isDark ? <Sun size={15} color="#fbbf24" /> : <Moon size={15} color="#0284c7" />}
                 style={{
                   borderRadius: 10,
@@ -444,14 +507,14 @@ export const MainLayout: React.FC = () => {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: 38,
+                  width: sidebarCollapsed ? '100%' : 38,
                   height: 36,
                 }}
               />
             </Tooltip>
           </div>
 
-          <div style={{ 
+          {!sidebarCollapsed && <div style={{
             fontSize: '11px', 
             color: isDark ? '#7dd3fc' : '#0369a1', 
             textAlign: 'center',
@@ -463,7 +526,7 @@ export const MainLayout: React.FC = () => {
           }}>
             <Sparkles size={11} color="#0ea5e9" />
             <span>Shift + Bôi đen để tra cứu</span>
-          </div>
+          </div>}
         </div>
       </Sider>
 
