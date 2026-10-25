@@ -57,7 +57,7 @@ async function currentToken() {
 async function serverReady(token) {
   if (!token) return false;
   try {
-    const response = await fetch(`http://127.0.0.1:${PORT}/status`, {
+    const response = await fetch(`http://127.0.0.1:${PORT}/antigravity/status`, {
       headers: { origin: REQUEST_ORIGIN, authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(500),
     });
@@ -79,7 +79,7 @@ try {
       token = await currentToken();
       if (await serverReady(token)) { ready = true; break; }
     }
-    if (!ready) throw new Error('ChatGPT companion could not start. Check whether port 39671 is in use.');
+    if (!ready) throw new Error('AI companion could not start. An older companion may still be using port 39671; stop it and retry.');
   }
   send({ ok: true, pairingToken: token });
 } catch (error) {

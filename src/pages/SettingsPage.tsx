@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Form, Input, InputNumber, Button, Select, Card, Typography, message, Divider, Space, Modal, Switch, Alert, Tag, Segmented, Row, Col } from 'antd';
+import { Form, Input, InputNumber, Button, Select, AutoComplete, Card, Typography, message, Divider, Space, Modal, Switch, Alert, Tag, Segmented, Row, Col } from 'antd';
 import { Save, CloudUpload, CloudDownload, Sparkles, ExternalLink, RefreshCw, Zap, Key, Bell, CheckSquare } from 'lucide-react';
 import { getSettings, saveSettings, useSettings, type Settings } from '../lib/settings';
 import { syncToGithub, syncFromGithub } from '../lib/github';
 import { translate } from '../lib/localization';
 import { testAIConnection, type AITestResult } from '../lib/translator';
 import { beginChatGPTLogin, checkChatGPTConnection, listChatGPTModels, savePairingCode, type ChatGPTStatus } from '../lib/chatgptCompanion';
-import { isDeepSeekProxyActive, pingDeepSeekProxy, toggleDeepSeekProxy, type DeepSeekProxyHealth } from '../lib/deepseekProxy';
+import { beginAntigravityLogin, disconnectAntigravity, getAntigravityStatus, listAntigravityModels, type AntigravityStatus } from '../lib/antigravity';
+import { pingDeepSeekProxy, type DeepSeekProxyHealth } from '../lib/deepseekProxy';
 import { pomodoroManager, usePomodoroTimer } from '../lib/pomodoro';
 
 const { Title, Text } = Typography;
@@ -24,16 +25,20 @@ export const SettingsPage: React.FC = () => {
   const [webModelsList, setWebModelsList] = useState<{ value: string; label: string }[]>([]);
   const [pairingCode, setPairingCode] = useState('');
   const [chatGPTStatus, setChatGPTStatus] = useState<ChatGPTStatus | null>(null);
+  const [antigravityStatus, setAntigravityStatus] = useState<AntigravityStatus | null>(null);
+  const [antigravityModels, setAntigravityModels] = useState<{ value: string; label: string }[]>([]);
+  const [antigravityBusy, setAntigravityBusy] = useState(false);
   const [aiProvider, setAiProvider] = useState<Settings['ai_provider']>('none');
   const [openaiAuthType, setOpenaiAuthType] = useState<'chatgpt_web' | 'api_key'>('chatgpt_web');
   const [deepseekAuthType, setDeepseekAuthType] = useState<'api_key' | 'web_token' | 'local_proxy'>('local_proxy');
   const [proxyHealth, setProxyHealth] = useState<DeepSeekProxyHealth | null>(null);
   const [isPingingProxy, setIsPingingProxy] = useState(false);
+  const [checkingAntigravity, setCheckingAntigravity] = useState(false);
 
   const settings = useSettings();
   const pomodoroState = usePomodoroTimer();
   const currentLang = settings.language || 'vi';
-  const nativeInstallCommand = `npm run chatgpt:install-host -- ${typeof chrome !== 'undefined' ? chrome.runtime.id : '<extension-id>'}`;
+  const nativeInstallCommand = `npm run ai:install-host -- ${typeof chrome !== 'undefined' ? chrome.runtime.id : '<extension-id>'}`;
 
   const isDark = settings.theme === 'dark' || (
     settings.theme === 'system' && 
@@ -42,34 +47,11 @@ export const SettingsPage: React.FC = () => {
     window.matchMedia('(prefers-color-scheme: dark)').matches
   );
 
-  const isProxyActive = isDeepSeekProxyActive(settings);
-
   useEffect(() => {
+    if (aiProvider !== 'deepseek' || deepseekAuthType !== 'local_proxy') return;
+    setProxyHealth(null);
     pingDeepSeekProxy(settings.deepseek_proxy_url).then(setProxyHealth);
-  }, [settings.deepseek_proxy_url, isProxyActive]);
-
-  const handleToggleProxy = async (checked: boolean) => {
-    try {
-      const updated = await toggleDeepSeekProxy(checked);
-      setAiProvider(updated.ai_provider);
-      form.setFieldsValue({
-        ai_provider: updated.ai_provider,
-        deepseek_auth_type: updated.deepseek_auth_type,
-        deepseek_proxy_url: updated.deepseek_proxy_url,
-        deepseek_model: updated.deepseek_model
-      });
-      if (checked) {
-        setDeepseekAuthType('local_proxy');
-        message.success(translate('deepseekProxyEnableSuccess', currentLang));
-      } else {
-        message.info(translate('deepseekProxyDisableSuccess', currentLang));
-      }
-      pingDeepSeekProxy(updated.deepseek_proxy_url).then(setProxyHealth);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Lỗi khi bật/tắt proxy';
-      message.error(msg);
-    }
-  };
+  }, [aiProvider, deepseekAuthType, settings.deepseek_proxy_url]);
 
   const handleFetchChatGPTToken = async (newAccount = false) => {
     setFetchingToken(true);
@@ -115,6 +97,49 @@ export const SettingsPage: React.FC = () => {
       else if (status.status === 'connected') message.success(currentLang === 'vi' ? 'Đã kết nối ChatGPT.' : 'ChatGPT connected.');
     } catch (error) { message.error(error instanceof Error ? error.message : 'Connection failed'); }
   };
+
+  const handleAntigravityLogin = async () => {
+    setAntigravityBusy(true);
+    try {
+      const url = await beginAntigravityLogin();
+      await chrome.tabs.create({ url });
+      setAntigravityStatus({ status: 'connecting' });
+      message.info(currentLang === 'vi' ? 'Hoàn tất đăng nhập Google trong tab vừa mở.' : 'Finish Google sign-in in the new tab.');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally { setAntigravityBusy(false); }
+  };
+
+  const handleAntigravityModels = async () => {
+    setAntigravityBusy(true);
+    try {
+      const models = await listAntigravityModels();
+      setAntigravityModels(models);
+      message.success(currentLang === 'vi' ? `Đã tải ${models.length} model.` : `Loaded ${models.length} models.`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally { setAntigravityBusy(false); }
+  };
+
+  const handleCheckAntigravity = async () => {
+    setCheckingAntigravity(true);
+    try { setAntigravityStatus(await getAntigravityStatus()); }
+    catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+    finally { setCheckingAntigravity(false); }
+  };
+
+  useEffect(() => {
+    if (aiProvider !== 'antigravity') return;
+    let active = true;
+    const check = () => getAntigravityStatus().then(status => {
+      if (active) setAntigravityStatus(status);
+    }).catch(error => {
+      if (active) setAntigravityStatus({ status: 'disconnected', error: error instanceof Error ? error.message : String(error) });
+    });
+    check();
+    const timer = setInterval(check, 3000);
+    return () => { active = false; clearInterval(timer); };
+  }, [aiProvider]);
 
   const handleTestAI = async () => {
     const currentValues = form.getFieldsValue();
@@ -454,96 +479,79 @@ export const SettingsPage: React.FC = () => {
             {translate('aiProviderDesc', currentLang)}
           </Text>
 
-          {/* Quick DeepSeek Local Proxy Card */}
-          <div style={{
-            background: isProxyActive 
-              ? (isDark ? 'linear-gradient(135deg, rgba(37, 99, 235, 0.2) 0%, rgba(59, 130, 246, 0.1) 100%)' : 'linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(59, 130, 246, 0.04) 100%)')
-              : (isDark ? 'rgba(30, 41, 59, 0.5)' : 'rgba(241, 245, 249, 0.6)'),
-            border: `1px solid ${isProxyActive ? 'rgba(37, 99, 235, 0.35)' : (isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(226, 232, 240, 0.8)')}`,
-            borderRadius: 14,
-            padding: 16,
-            marginBottom: 20
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ 
-                  background: isProxyActive ? '#2563eb' : (isDark ? '#475569' : '#94a3b8'), 
-                  borderRadius: 10, 
-                  padding: 8, 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center' 
-                }}>
-                  <Zap size={20} color="#fff" />
-                </div>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <strong style={{ fontSize: 16, color: isDark ? '#f8fafc' : '#1e293b' }}>
-                      {translate('deepseekProxyQuickCardTitle', currentLang)}
-                    </strong>
-                    <Tag color={isProxyActive ? (proxyHealth?.online ? 'success' : 'error') : 'default'} style={{ borderRadius: 10 }}>
-                      {isProxyActive ? (proxyHealth?.online ? `Online (${proxyHealth.latencyMs}ms)` : 'Offline') : 'Tắt / Inactive'}
-                    </Tag>
-                  </div>
-                  <Text type="secondary" style={{ fontSize: 13, display: 'block', marginTop: 2 }}>
-                    {translate('deepseekProxyQuickCardDesc', currentLang)}
-                  </Text>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Button
-                  size="small"
-                  icon={<RefreshCw size={12} className={isPingingProxy ? 'animate-spin' : ''} />}
-                  loading={isPingingProxy}
-                  onClick={async () => {
-                    setIsPingingProxy(true);
-                    const res = await pingDeepSeekProxy(form.getFieldValue('deepseek_proxy_url') || settings.deepseek_proxy_url);
-                    setProxyHealth(res);
-                    setIsPingingProxy(false);
-                    if (res.online) {
-                      message.success(`${translate('deepseekProxyPingSuccess', currentLang)} ${res.latencyMs}ms`);
-                    } else {
-                      message.warning(translate('deepseekProxyPingFailed', currentLang));
-                    }
-                  }}
-                  style={{ borderRadius: 6, fontSize: 12 }}
-                >
-                  {translate('deepseekProxyPingBtn', currentLang)}
-                </Button>
-                <Switch
-                  checked={isProxyActive}
-                  onChange={handleToggleProxy}
-                  style={{ background: isProxyActive ? '#2563eb' : undefined }}
-                />
-              </div>
-            </div>
-
-            {isProxyActive && !proxyHealth?.online && (
-              <div style={{ 
-                background: isDark ? 'rgba(245, 158, 11, 0.15)' : '#fef3c7', 
-                border: isDark ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid #fde68a', 
-                borderRadius: 8, 
-                padding: '10px 12px', 
-                marginTop: 14, 
-                fontSize: 12, 
-                color: isDark ? '#fde68a' : '#92400e' 
-              }}>
-                <div style={{ fontWeight: 700, marginBottom: 2 }}>⚠️ Máy chủ local chưa phản hồi:</div>
-                Chạy lệnh: <code style={{ color: '#60a5fa', fontWeight: 700 }}>ALLOW_BROWSER_ORIGIN=1 npm start</code> trong thư mục <b>FreeDeepseekAPI</b>.
-              </div>
-            )}
-          </div>
-
           <Form.Item name="ai_provider" label={translate('selectProvider', currentLang)}>
             <Select>
               <Option value="none">{translate('providerNone', currentLang)}</Option>
               <Option value="gemini">{translate('providerGemini', currentLang)}</Option>
+              <Option value="antigravity">Antigravity (Google OAuth)</Option>
               <Option value="deepseek">{translate('providerDeepSeek', currentLang)}</Option>
               <Option value="openai">{translate('providerOpenAI', currentLang)}</Option>
               <Option value="ollama">{translate('providerOllama', currentLang)}</Option>
             </Select>
           </Form.Item>
+          {aiProvider !== settings.ai_provider && <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: -8, marginBottom: 20 }}
+            message={currentLang === 'vi'
+              ? 'Bạn đã chọn provider khác. Nhấn “Lưu cấu hình” bên dưới để áp dụng.'
+              : 'You selected a different provider. Select “Save Config” below to apply it.'}
+          />}
+
+          {aiProvider === 'antigravity' && (
+            <Card style={{ marginBottom: 24, borderRadius: 12 }}>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 20 }}>
+                {currentLang === 'vi'
+                  ? 'Đăng nhập Google để dùng Antigravity cho bản dịch AI.'
+                  : 'Sign in with Google to use Antigravity for AI translations.'}
+              </Text>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+                <Space wrap>
+                  <Tag color={antigravityStatus?.status === 'connected' ? 'success' : antigravityStatus?.status === 'connecting' ? 'processing' : 'default'} style={{ margin: 0 }}>
+                    {antigravityStatus?.status === 'connected'
+                      ? (currentLang === 'vi' ? 'Đã kết nối' : 'Connected')
+                      : antigravityStatus?.status === 'connecting'
+                        ? (currentLang === 'vi' ? 'Đang đăng nhập' : 'Signing in')
+                        : (currentLang === 'vi' ? 'Chưa kết nối' : 'Not connected')}
+                  </Tag>
+                  {antigravityStatus?.status === 'connected' && antigravityStatus.email && <Text>{antigravityStatus.email}</Text>}
+                </Space>
+                <Space wrap>
+                  {antigravityStatus?.status === 'connected' ? (
+                    <Button danger onClick={async () => {
+                      try { await disconnectAntigravity(); setAntigravityStatus({ status: 'disconnected' }); setAntigravityModels([]); }
+                      catch (error) { message.error(String(error)); }
+                    }}>{currentLang === 'vi' ? 'Ngắt kết nối' : 'Disconnect'}</Button>
+                  ) : antigravityStatus?.status !== 'connecting' ? (
+                    <Button type="primary" loading={antigravityBusy} onClick={handleAntigravityLogin}>
+                      {currentLang === 'vi' ? 'Kết nối Google' : 'Connect Google'}
+                    </Button>
+                  ) : null}
+                  <Button icon={<RefreshCw size={14} />} loading={checkingAntigravity} onClick={handleCheckAntigravity} aria-label={currentLang === 'vi' ? 'Làm mới trạng thái kết nối' : 'Refresh connection status'} />
+                </Space>
+              </div>
+              {antigravityStatus?.error && <Alert type="error" showIcon message={antigravityStatus.error} style={{ marginBottom: 20 }} />}
+              <Form.Item
+                name="antigravity_model"
+                label={currentLang === 'vi' ? 'Model Antigravity' : 'Antigravity model'}
+                rules={[{ required: true, whitespace: true }, { pattern: /^(?:ag\/)?[a-zA-Z0-9._-]+$/, message: 'Ví dụ: gemini-3.8-flash' }]}
+                extra={currentLang === 'vi' ? 'Chọn từ danh sách hoặc nhập tên model.' : 'Choose from the list or enter a model name.'}
+                style={{ marginBottom: 12 }}
+              >
+                <AutoComplete options={antigravityModels} placeholder="gemini-3.8-flash" disabled={antigravityStatus?.status !== 'connected'} />
+              </Form.Item>
+              <Button size="small" icon={<RefreshCw size={13} />} loading={antigravityBusy} onClick={handleAntigravityModels} disabled={antigravityStatus?.status !== 'connected'}>
+                {currentLang === 'vi' ? 'Tải danh sách model' : 'Load available models'}
+              </Button>
+              {antigravityStatus?.status !== 'connected' && <details style={{ marginTop: 16 }}>
+                <summary style={{ cursor: 'pointer' }}>{currentLang === 'vi' ? 'Cần hỗ trợ kết nối?' : 'Need help connecting?'}</summary>
+                <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                  {currentLang === 'vi' ? 'Nếu companion chưa được cài, chạy lệnh sau một lần rồi tải lại extension:' : 'If the companion is not installed, run this once and reload the extension:'}
+                </Text>
+                <Text code copyable={{ text: nativeInstallCommand }}>{nativeInstallCommand}</Text>
+              </details>}
+            </Card>
+          )}
 
           {aiProvider === 'gemini' && (
             <>
@@ -632,6 +640,26 @@ export const SettingsPage: React.FC = () => {
 
               {deepseekAuthType === 'local_proxy' && (
                 <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                    <Space wrap>
+                      <Text strong>{translate('deepseekProxyQuickCardTitle', currentLang)}</Text>
+                      <Tag color={proxyHealth?.online ? 'success' : proxyHealth ? 'error' : 'default'} style={{ margin: 0 }}>
+                        {proxyHealth?.online ? `Online (${proxyHealth.latencyMs}ms)` : proxyHealth ? 'Offline' : (currentLang === 'vi' ? 'Đang kiểm tra' : 'Checking')}
+                      </Tag>
+                    </Space>
+                    <Button
+                      size="small"
+                      icon={<RefreshCw size={13} />}
+                      loading={isPingingProxy}
+                      onClick={async () => {
+                        setIsPingingProxy(true);
+                        try { setProxyHealth(await pingDeepSeekProxy(form.getFieldValue('deepseek_proxy_url') || settings.deepseek_proxy_url)); }
+                        finally { setIsPingingProxy(false); }
+                      }}
+                    >
+                      {translate('deepseekProxyPingBtn', currentLang)}
+                    </Button>
+                  </div>
                   <Text type="secondary" style={{ fontSize: 13, lineHeight: '1.5', display: 'block' }}>
                     {translate('deepseekProxyDesc', currentLang)}
                   </Text>

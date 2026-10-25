@@ -1,7 +1,8 @@
 import { hasRuntimeError, isExtensionContextValid } from './extensionContext';
 
 export interface Settings {
-  ai_provider: 'gemini' | 'openai' | 'deepseek' | 'chatgpt_web' | 'ollama' | 'none';
+  ai_provider: 'gemini' | 'openai' | 'deepseek' | 'chatgpt_web' | 'ollama' | 'antigravity' | 'none';
+  antigravity_model?: string;
   gemini_api_key?: string;
   gemini_model?: string;
   openai_api_key?: string;
@@ -21,7 +22,7 @@ export interface Settings {
   language?: 'vi' | 'en';
   show_trigger_icon?: boolean;
   daily_review_goal?: number;
-  previous_ai_provider?: 'gemini' | 'openai' | 'deepseek' | 'chatgpt_web' | 'ollama' | 'none';
+  previous_ai_provider?: Settings['ai_provider'];
   enable_passive_highlight?: boolean;
   enable_writing_assistant?: boolean;
   enable_todo_reminders?: boolean;
@@ -34,6 +35,7 @@ export interface Settings {
 const DEFAULT_SETTINGS: Settings = {
   ai_provider: 'none',
   previous_ai_provider: 'none',
+  antigravity_model: 'gemini-3.8-flash',
   gemini_api_key: '',
   gemini_model: 'gemini-2.5-flash-lite',
   openai_api_key: '',
@@ -159,6 +161,9 @@ export function isAIConfigured(settings?: Partial<Settings> | null): boolean {
     case 'gemini':
       return Boolean(settings.gemini_api_key && settings.gemini_api_key.trim().length > 0);
 
+    case 'antigravity':
+      return true;
+
     case 'deepseek': {
       const authType = settings.deepseek_auth_type || (settings.deepseek_api_key ? 'api_key' : 'local_proxy');
       if (authType === 'local_proxy') {
@@ -200,6 +205,8 @@ export function getAIProviderLabel(settings?: Partial<Settings> | null, lang: 'v
       const cleanModel = model.replace('gemini-', '');
       return `Gemini (${cleanModel})`;
     }
+    case 'antigravity':
+      return `Antigravity (${settings.antigravity_model || 'gemini-3.8-flash'})`;
     case 'deepseek': {
       const authType = settings.deepseek_auth_type || (settings.deepseek_api_key ? 'api_key' : 'local_proxy');
       if (authType === 'local_proxy') return 'DeepSeek (Local Proxy)';

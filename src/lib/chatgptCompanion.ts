@@ -28,11 +28,11 @@ export async function savePairingCode(code: string): Promise<void> {
   }
 }
 
-export async function companionRequest<T>(path: '/status' | '/login' | '/logout' | '/models' | '/response', body?: unknown): Promise<T> {
+export async function companionRequest<T>(path: '/status' | '/login' | '/logout' | '/models' | '/response' | '/antigravity/status' | '/antigravity/login' | '/antigravity/logout' | '/antigravity/models' | '/antigravity/response', body?: unknown): Promise<T> {
   const token = await pairingCode();
-  if (!token) throw new Error('Hãy cài ChatGPT native host hoặc nhập mã ghép nối thủ công.');
+  if (!token) throw new Error('Hãy cài AI native host hoặc nhập mã ghép nối thủ công.');
   if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) {
-    throw new Error('Kết nối ChatGPT chỉ hoạt động trong extension Chrome.');
+    throw new Error('Kết nối AI companion chỉ hoạt động trong extension Chrome.');
   }
   const reply = await chrome.runtime.sendMessage({ action: 'CHATGPT_COMPANION_REQUEST', path, body, token });
   if (reply?.error) throw new Error(reply.error);

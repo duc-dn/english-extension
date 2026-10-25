@@ -57,6 +57,9 @@ describe('English Extension Settings (chrome.storage mock)', () => {
     expect(isAIConfigured({ ai_provider: 'gemini', gemini_api_key: '   ' })).toBe(false);
     expect(isAIConfigured({ ai_provider: 'gemini', gemini_api_key: 'AIzaSy123' })).toBe(true);
 
+    // Antigravity sign-in is checked by the local companion when a request is made.
+    expect(isAIConfigured({ ai_provider: 'antigravity' })).toBe(true);
+
     // DeepSeek
     expect(isAIConfigured({ ai_provider: 'deepseek', deepseek_auth_type: 'local_proxy', deepseek_proxy_url: 'http://127.0.0.1:9655' })).toBe(true);
     expect(isAIConfigured({ ai_provider: 'deepseek', deepseek_auth_type: 'api_key', deepseek_api_key: 'sk-123' })).toBe(true);
