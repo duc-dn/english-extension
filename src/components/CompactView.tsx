@@ -6,7 +6,7 @@ import {
   Volume2, Check, Trash2, Globe, Moon, Sun, 
   Sparkles, XCircle, ChevronRight, Plus, MessageSquare, ExternalLink,
   CheckSquare, Square, CheckCircle2, Calendar, Image as LucideImage,
-  ChevronUp, ChevronDown, Copy, FileInput
+  ChevronUp, ChevronDown, Copy, FileInput, MessageSquareQuote, Quote
 } from 'lucide-react';
 import { marked } from 'marked';
 import { fetchBasicMeaning, translateSentence, translateSentenceWithAI, summarizeSentence, explainWord, sendChatMessage, extractGrammarNote, type ChatHistoryItem } from '../lib/translator';
@@ -141,6 +141,9 @@ export const CompactView: React.FC = () => {
   }, [chatHistory]);
   const [chatInput, setChatInput] = useState('');
   const [chatSelection, setChatSelection] = useState('');
+  const [chatSelectionSource, setChatSelectionSource] = useState<'page' | 'ai'>('page');
+  const [floatingQuote, setFloatingQuote] = useState<{ text: string; x: number; y: number } | null>(null);
+  const chatTextareaRef = useRef<any>(null);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatImage, setChatImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -157,20 +160,96 @@ export const CompactView: React.FC = () => {
     if (!chrome.storage?.session) return;
     chrome.storage.session.get('chatSelection', (items) => {
       const selection = items.chatSelection as { text?: string } | undefined;
-      if (!chrome.runtime.lastError) setChatSelection(selection?.text || '');
+      if (!chrome.runtime.lastError && selection?.text) {
+        setChatSelection(selection.text);
+        setChatSelectionSource('page');
+      }
     });
     const onSelectionChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
       if (area === 'session' && changes.chatSelection) {
         const selection = changes.chatSelection.newValue as { text?: string } | undefined;
-        setChatSelection(selection?.text || '');
+        if (selection?.text) {
+          setChatSelection(selection.text);
+          setChatSelectionSource('page');
+        } else {
+          setChatSelection('');
+          setChatSelectionSource('page');
+        }
       }
     };
     chrome.storage.onChanged.addListener(onSelectionChanged);
     return () => chrome.storage.onChanged.removeListener(onSelectionChanged);
   }, []);
 
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) {
+        setFloatingQuote(null);
+      }
+    };
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => document.removeEventListener('selectionchange', handleSelectionChange);
+  }, []);
+
+  const handleApplyQuoteContext = (textToQuote: string) => {
+    const trimmed = textToQuote.trim();
+    if (!trimmed) return;
+    setChatSelection(trimmed);
+    setChatSelectionSource('ai');
+    setFloatingQuote(null);
+    window.getSelection()?.removeAllRanges();
+    message.success(
+      currentLang === 'vi' 
+        ? 'Đã lấy đoạn trích dẫn làm ngữ cảnh!' 
+        : 'Quoted snippet set as context!'
+    );
+    setTimeout(() => {
+      chatTextareaRef.current?.focus?.();
+    }, 60);
+  };
+
+  const handleAIMessageSelectionCheck = () => {
+    setTimeout(() => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed) {
+        setFloatingQuote(null);
+        return;
+      }
+      const selectedText = selection.toString().trim();
+      if (!selectedText || selectedText.length < 2) {
+        setFloatingQuote(null);
+        return;
+      }
+
+      const anchorNode = selection.anchorNode;
+      const focusNode = selection.focusNode;
+      const anchorEl = anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement;
+      const focusEl = focusNode instanceof Element ? focusNode : focusNode?.parentElement;
+
+      const aiBubble = anchorEl?.closest('.ai-chat-bubble') || focusEl?.closest('.ai-chat-bubble');
+      if (!aiBubble) {
+        setFloatingQuote(null);
+        return;
+      }
+
+      if (selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          setFloatingQuote({
+            text: selectedText,
+            x: rect.left + rect.width / 2,
+            y: rect.top,
+          });
+        }
+      }
+    }, 20);
+  };
+
   const clearChatSelection = () => {
     setChatSelection('');
+    setChatSelectionSource('page');
     chrome.storage?.session?.remove('chatSelection');
   };
 
@@ -586,6 +665,7 @@ export const CompactView: React.FC = () => {
 
   const handleChatScroll = (e: React.UIEvent<HTMLDivElement>) => {
     if (activeTab !== 'aichat') return;
+    if (floatingQuote) setFloatingQuote(null);
     const currentScrollTop = e.currentTarget.scrollTop;
     const scrollDiff = currentScrollTop - lastScrollTopRef.current;
 
@@ -640,6 +720,7 @@ export const CompactView: React.FC = () => {
     const userMsg = chatInput.trim();
     const userImg = chatImage;
     const attachedContext = chatSelection;
+    const attachedContextSource = chatSelectionSource;
     setChatInput('');
     setChatImage(null);
     if (attachedContext) clearChatSelection();
@@ -651,7 +732,8 @@ export const CompactView: React.FC = () => {
         sender: 'user', 
         text: userMsg || (currentLang === 'vi' ? 'Hãy phân tích và giải thích hình ảnh này giúp tôi.' : 'Please analyze and explain this image for me.'),
         image: userImg || undefined,
-        context: attachedContext || undefined
+        context: attachedContext || undefined,
+        contextSource: attachedContext ? attachedContextSource : undefined
       }
     ];
     setChatHistory(newHistory);
@@ -1862,6 +1944,54 @@ export const CompactView: React.FC = () => {
               </button>
             )}
 
+            {/* Floating Quote Context Pill when text is selected in AI response */}
+            {floatingQuote && (
+              <div
+                className="floating-quote-btn"
+                style={{
+                  position: 'fixed',
+                  left: `${floatingQuote.x}px`,
+                  top: `${Math.max(14, floatingQuote.y - 42)}px`,
+                  transform: 'translateX(-50%)',
+                  zIndex: 9999,
+                  animation: 'fadeIn 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+                }}
+              >
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => handleApplyQuoteContext(floatingQuote.text)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 14px',
+                    borderRadius: 22,
+                    background: '#0284c7',
+                    color: '#ffffff',
+                    border: 'none',
+                    boxShadow: '0 4px 16px rgba(2, 132, 199, 0.45), 0 2px 4px rgba(0,0,0,0.18)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'scale(1.05)';
+                    e.currentTarget.style.background = '#0369a1';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'scale(1)';
+                    e.currentTarget.style.background = '#0284c7';
+                  }}
+                >
+                  <MessageSquareQuote size={14} />
+                  <span>{currentLang === 'vi' ? 'Dùng làm ngữ cảnh' : 'Use as context'}</span>
+                </button>
+              </div>
+            )}
+
             {/* AI Provider Status Bar */}
             <div style={{
               display: 'flex',
@@ -1981,6 +2111,9 @@ export const CompactView: React.FC = () => {
             <div 
               ref={chatScrollRef}
               onScroll={handleChatScroll}
+              onMouseUp={handleAIMessageSelectionCheck}
+              onTouchEnd={handleAIMessageSelectionCheck}
+              onKeyUp={handleAIMessageSelectionCheck}
               style={{ 
                 flex: 1, 
                 minHeight: 0,
@@ -2080,21 +2213,24 @@ export const CompactView: React.FC = () => {
                       animation: 'fadeIn 0.2s'
                     }}
                   >
-                    <div style={{
-                      maxWidth: '88%',
-                      padding: msg.image ? '10px 14px' : '10px 18px',
-                      borderRadius: '22px',
-                      background: msg.sender === 'user' 
-                        ? (isDark ? 'rgba(2, 132, 199, 0.25)' : '#e8f3fe')
-                        : colors.bgContainer,
-                      border: msg.sender === 'user' 
-                        ? (isDark ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid #dbeafe')
-                        : '1px solid ' + colors.border,
-                      color: msg.sender === 'user' 
-                        ? (isDark ? '#f8fafc' : '#151d2a')
-                        : colors.textMain,
-                      boxShadow: msg.sender === 'user' ? '0 1px 2px rgba(15, 23, 42, 0.04)' : 'none'
-                    }}>
+                    <div 
+                      className={msg.sender === 'ai' ? 'ai-chat-bubble' : undefined}
+                      style={{
+                        maxWidth: '88%',
+                        padding: msg.image ? '10px 14px' : '10px 18px',
+                        borderRadius: '22px',
+                        background: msg.sender === 'user' 
+                          ? (isDark ? 'rgba(2, 132, 199, 0.25)' : '#e8f3fe')
+                          : colors.bgContainer,
+                        border: msg.sender === 'user' 
+                          ? (isDark ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid #dbeafe')
+                          : '1px solid ' + colors.border,
+                        color: msg.sender === 'user' 
+                          ? (isDark ? '#f8fafc' : '#151d2a')
+                          : colors.textMain,
+                        boxShadow: msg.sender === 'user' ? '0 1px 2px rgba(15, 23, 42, 0.04)' : 'none'
+                      }}
+                    >
                       {msg.sender === 'user' && msg.context && (
                         <div style={{
                           marginBottom: 8, padding: '6px 8px', borderRadius: 8,
@@ -2102,8 +2238,11 @@ export const CompactView: React.FC = () => {
                           border: '1px solid ' + (isDark ? '#334155' : '#bfdbfe'),
                           maxWidth: '100%', minWidth: 0
                         }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: colors.primary }}>
-                            {currentLang === 'vi' ? 'Ngữ cảnh từ trang web' : 'Context from page'}
+                          <div style={{ fontSize: 10, fontWeight: 700, color: colors.primary, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <Quote size={11} />
+                            {msg.contextSource === 'ai'
+                              ? (currentLang === 'vi' ? 'Trích dẫn từ AI' : 'Quoted from AI')
+                              : (currentLang === 'vi' ? 'Ngữ cảnh từ trang web' : 'Context from page')}
                           </div>
                           <div style={{
                             fontSize: 11, color: colors.textMuted, whiteSpace: 'nowrap',
@@ -2144,6 +2283,24 @@ export const CompactView: React.FC = () => {
                       ) : (
                         <div>
                           <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                            <Button
+                              type="text"
+                              size="small"
+                              onClick={() => {
+                                const sel = window.getSelection();
+                                let textToQuote = '';
+                                if (sel && !sel.isCollapsed) {
+                                  const s = sel.toString().trim();
+                                  if (s) textToQuote = s;
+                                }
+                                if (!textToQuote) textToQuote = msg.text;
+                                handleApplyQuoteContext(textToQuote);
+                              }}
+                              icon={<MessageSquareQuote size={15} />}
+                              aria-label={currentLang === 'vi' ? 'Trích dẫn làm ngữ cảnh' : 'Quote as context'}
+                              title={currentLang === 'vi' ? 'Trích dẫn đoạn bôi đen hoặc toàn bộ câu trả lời làm ngữ cảnh chat' : 'Quote selected text or whole response as chat context'}
+                              style={{ width: 26, height: 26, padding: 0, color: colors.primary }}
+                            />
                             <Button
                               type="text"
                               size="small"
@@ -2242,11 +2399,15 @@ export const CompactView: React.FC = () => {
                 <div style={{
                   display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px',
                   borderRadius: 9, background: isDark ? '#1e293b' : '#f0f9ff',
-                  border: '1px solid ' + (isDark ? '#334155' : '#bae6fd')
+                  border: '1px solid ' + (isDark ? '#334155' : '#bae6fd'),
+                  animation: 'fadeIn 0.2s'
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: colors.primary, marginBottom: 2 }}>
-                      {currentLang === 'vi' ? 'Ngữ cảnh từ trang web' : 'Context from page'}
+                    <div style={{ fontSize: 11, fontWeight: 700, color: colors.primary, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Quote size={12} />
+                      {chatSelectionSource === 'ai'
+                        ? (currentLang === 'vi' ? 'Trích dẫn từ câu trả lời của AI' : 'Quoted from AI response')
+                        : (currentLang === 'vi' ? 'Ngữ cảnh từ trang web' : 'Context from page')}
                     </div>
                     <div style={{
                       fontSize: 12, color: colors.textMain, overflow: 'hidden',
@@ -2334,6 +2495,7 @@ export const CompactView: React.FC = () => {
                   <LucideImage size={17} />
                 </button>
                 <Input.TextArea
+                  ref={chatTextareaRef}
                   placeholder={
                     isAiConfigured 
                       ? (currentLang === 'vi' 
