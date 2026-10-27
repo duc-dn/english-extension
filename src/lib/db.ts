@@ -20,6 +20,27 @@ export interface Word {
   sourceTitle?: string;
 }
 
+export interface GrammarExerciseMultipleChoice {
+  id: string;
+  question: string;
+  options: string[];
+  correctAnswer: number;
+  explanation: string;
+}
+
+export interface GrammarExerciseTranslation {
+  id: string;
+  vietnamese: string;
+  hint?: string;
+  suggestedEnglish: string;
+  targetGrammarPoint?: string;
+}
+
+export interface GrammarExerciseSet {
+  multipleChoice?: GrammarExerciseMultipleChoice[];
+  translation?: GrammarExerciseTranslation[];
+}
+
 export interface GrammarNote {
   id: string;
   title: string;
@@ -29,6 +50,15 @@ export interface GrammarNote {
   review_level: number;
   next_review: Date;
   created_at: Date;
+  formula?: string;
+  explanation?: string;
+  notes?: string;
+  examplesList?: { english: string; vietnamese: string }[];
+  exercises?: GrammarExerciseSet;
+  quiz_mistake_ids?: string[];
+  quiz_attempts?: number;
+  quiz_correct?: number;
+  last_practiced_at?: Date;
 }
 
 export interface ReviewHistory {

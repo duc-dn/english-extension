@@ -27,6 +27,11 @@ const manifest = defineManifest({
     {
       matches: ['<all_urls>'],
       js: ['src/content.tsx']
+    },
+    {
+      matches: ['https://www.youtube-nocookie.com/embed/*', 'https://www.youtube.com/embed/*'],
+      js: ['src/youtubeCaptionsContent.ts'],
+      all_frames: true
     }
   ],
   side_panel: {

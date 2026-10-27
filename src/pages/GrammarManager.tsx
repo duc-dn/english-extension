@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Table, Button, Tag, Space, Modal, Form, Input, message, Typography, Tooltip, Spin, Popconfirm } from 'antd';
+import { Table, Button, Tag, Space, Modal, Form, Input, message, Typography, Tooltip, Spin, Popconfirm, Segmented } from 'antd';
 import { 
   Plus, 
   Trash2, 
@@ -12,7 +12,11 @@ import {
   Pencil, 
   Lightbulb, 
   BookOpen, 
-  X
+  X,
+  LayoutGrid,
+  List,
+  GraduationCap,
+  RefreshCw
 } from 'lucide-react';
 import { db, type GrammarNote, addGrammarNote, deleteGrammarNote, updateGrammarNote } from '../lib/db';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -21,6 +25,16 @@ import { translate } from '../lib/localization';
 import { searchGrammarWithAI, type AIGrammarExplanation } from '../lib/translator';
 import { playAudio } from '../lib/audio';
 import { isDeepSeekProxyActive } from '../lib/deepseekProxy';
+import { GrammarStudioModal } from '../components/GrammarStudioModal';
+import { seedFoundationalGrammarNotes, FOUNDATIONAL_GRAMMAR_SEEDS } from '../lib/grammarSeedData';
+import { 
+  GRAMMAR_TOPIC_CATALOG, 
+  GRAMMAR_CATEGORIES, 
+  type GrammarCategory, 
+  type GrammarTopicItem, 
+  catalogItemToGrammarNote 
+} from '../lib/grammarCatalog';
+import { getGrammarMistakeCount, isGrammarReviewDue } from '../lib/grammarPractice';
 
 const { Text } = Typography;
 
@@ -36,14 +50,101 @@ const SUGGESTED_TOPICS = [
 ];
 
 const EMPTY_NOTES: GrammarNote[] = [];
+type GrammarSection = 'topics' | 'review' | 'notebook' | 'ai';
 
 export const GrammarManager: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<GrammarNote | null>(null);
 
+  // Grammar Studio Modal state
+  const [selectedStudioNote, setSelectedStudioNote] = useState<GrammarNote | null>(null);
+  const [isStudioOpen, setIsStudioOpen] = useState(false);
+  const [studioAutoOpenGenerator, setStudioAutoOpenGenerator] = useState(false);
+  const [studioReviewMistakesOnly, setStudioReviewMistakesOnly] = useState(false);
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [isSeeding, setIsSeeding] = useState(false);
+  const [activeSection, setActiveSection] = useState<GrammarSection>('topics');
+
+  // Grammar Topics Catalog state
+  const [catalogCategory, setCatalogCategory] = useState<GrammarCategory>('all');
+  const [catalogSearch, setCatalogSearch] = useState('');
+
+  const openStudio = (note: GrammarNote, openGenerator: boolean = false, reviewMistakesOnly = false) => {
+    setSelectedStudioNote(note);
+    setStudioAutoOpenGenerator(openGenerator);
+    setStudioReviewMistakesOnly(reviewMistakesOnly);
+    setIsStudioOpen(true);
+  };
+
+
+  const handleSeedDefaultNotes = async () => {
+    setIsSeeding(true);
+    try {
+      const added = await seedFoundationalGrammarNotes();
+      if (added > 0) {
+        message.success(currentLang === 'vi' ? `Đã nạp ${added} cấu trúc nền tảng kèm bài tập thực hành!` : `Loaded ${added} core grammar structures with exercises!`);
+        setActiveSection('notebook');
+        setTableSearchText('');
+        setSelectedTag(null);
+      } else {
+        message.info(currentLang === 'vi' ? 'Các cấu trúc cốt lõi đã có trong sổ tay của bạn.' : 'Core structures already loaded.');
+        setActiveSection('notebook');
+        setTableSearchText('');
+        setSelectedTag(null);
+      }
+    } catch {
+      message.error('Failed to seed grammar rules');
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
+  const handleOpenSuggestion = async (title: string) => {
+    const existing = notes.find(n => n.title.toLowerCase().includes(title.toLowerCase()) || title.toLowerCase().includes(n.title.toLowerCase()));
+    if (existing) {
+      openStudio(existing);
+      return;
+    }
+
+    const matchingSeed = FOUNDATIONAL_GRAMMAR_SEEDS.find(s => s.title.toLowerCase().includes(title.toLowerCase()) || title.toLowerCase().includes(s.title.toLowerCase()));
+    if (matchingSeed) {
+      const created = await addGrammarNote(matchingSeed);
+      message.success(currentLang === 'vi' ? `Đã nạp "${matchingSeed.title}" kèm bài tập thực hành!` : `Loaded "${matchingSeed.title}"!`);
+      openStudio(created);
+    } else {
+      setSearchQuery(title);
+      setActiveSection('ai');
+      handleAISearch(title);
+    }
+  };
+
+  const handleSelectCatalogTopic = async (topic: GrammarTopicItem, openGenerator: boolean = false) => {
+    const existing = notes.find(n => n.title.toLowerCase().trim() === topic.title.toLowerCase().trim());
+    if (existing) {
+      openStudio(existing, openGenerator);
+      return;
+    }
+
+    try {
+      const created = await addGrammarNote(catalogItemToGrammarNote(topic));
+      message.success(currentLang === 'vi' ? `Đã nạp "${topic.title}" vào sổ tay học tập!` : `Loaded "${topic.title}"!`);
+      openStudio(created, openGenerator);
+    } catch {
+      const pseudo: GrammarNote = {
+        id: crypto.randomUUID(),
+        ...catalogItemToGrammarNote(topic),
+        review_level: 0,
+        next_review: new Date(),
+        created_at: new Date()
+      };
+      openStudio(pseudo, openGenerator);
+    }
+  };
+
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
+
 
   const settings = useSettings();
   const currentLang = settings.language || 'vi';
@@ -57,6 +158,8 @@ export const GrammarManager: React.FC = () => {
 
   // Live queries from Dexie
   const notes = useLiveQuery(() => db.grammar_notes.toArray()) ?? EMPTY_NOTES;
+  const dueNotes = notes.filter(note => isGrammarReviewDue(note));
+  const mistakeNotes = notes.filter(note => getGrammarMistakeCount(note) > 0);
 
   // Table search & filter state
   const [tableSearchText, setTableSearchText] = useState('');
@@ -81,9 +184,10 @@ export const GrammarManager: React.FC = () => {
         n.content.toLowerCase().includes(tableSearchText.toLowerCase()) ||
         (n.example && n.example.toLowerCase().includes(tableSearchText.toLowerCase()));
       const matchTag = !selectedTag || (n.tags || []).includes(selectedTag);
-      return matchSearch && matchTag;
+      const matchReview = activeSection !== 'review' || isGrammarReviewDue(n) || getGrammarMistakeCount(n) > 0;
+      return matchSearch && matchTag && matchReview;
     });
-  }, [notes, tableSearchText, selectedTag]);
+  }, [notes, tableSearchText, selectedTag, activeSection]);
 
   // All unique tags
   const allTags = useMemo(() => {
@@ -91,6 +195,21 @@ export const GrammarManager: React.FC = () => {
     notes.forEach(n => (n.tags || []).forEach(t => set.add(t)));
     return Array.from(set);
   }, [notes]);
+
+  // Filter grammar topic catalog
+  const filteredCatalogTopics = useMemo(() => {
+    return GRAMMAR_TOPIC_CATALOG.filter(item => {
+      const matchCat = catalogCategory === 'all' || item.category === catalogCategory;
+      const query = catalogSearch.toLowerCase().trim();
+      const matchSearch = !query || 
+        item.title.toLowerCase().includes(query) ||
+        item.formula.toLowerCase().includes(query) ||
+        item.explanation.toLowerCase().includes(query) ||
+        item.tags.some(t => t.toLowerCase().includes(query));
+      return matchCat && matchSearch;
+    });
+  }, [catalogCategory, catalogSearch]);
+
 
   // Execute AI Grammar Search
   const handleAISearch = async (queryToSearch?: string) => {
@@ -100,12 +219,13 @@ export const GrammarManager: React.FC = () => {
       return;
     }
 
-    if (!hasAI) {
+    if (!hasAI && !isProxyOn) {
       message.warning(
         currentLang === 'vi'
           ? 'Chưa bật AI Provider hoặc DeepSeek Local Proxy. Hãy bật công tắc proxy ở thanh công cụ phía trên.'
           : 'AI Provider is disabled. Please toggle on DeepSeek Local Proxy on the top bar.'
       );
+      return;
     }
 
     setIsSearchingAI(true);
@@ -130,15 +250,21 @@ export const GrammarManager: React.FC = () => {
         return ex.vietnamese ? `${ex.english}\n(${ex.vietnamese})` : ex.english;
       }).join('\n\n');
 
-      await addGrammarNote({
+      const saved = await addGrammarNote({
         title: item.title,
         content: formattedContent,
         example: formattedExamples,
-        tags: item.tags || ['ai-grammar']
+        tags: item.tags || ['ai-grammar'],
+        formula: item.formula,
+        explanation: item.explanation,
+        notes: item.notes,
+        examplesList: item.examples,
+        exercises: item.exercises
       });
 
       setSavedAiTitles(prev => new Set(prev).add(item.title));
       message.success(translate('aiGrammarSaveSuccess', currentLang));
+      return saved;
     } catch {
       message.error(currentLang === 'vi' ? 'Không thể lưu cấu trúc vào sổ tay.' : 'Failed to save grammar note.');
     }
@@ -198,6 +324,9 @@ export const GrammarManager: React.FC = () => {
       });
       message.success(translate('addNoteSuccess', currentLang));
       setIsModalOpen(false);
+      setActiveSection('notebook');
+      setTableSearchText('');
+      setSelectedTag(null);
       form.resetFields();
     } catch {
       message.error(translate('addNoteFailed', currentLang));
@@ -262,9 +391,12 @@ export const GrammarManager: React.FC = () => {
       dataIndex: 'title',
       key: 'title',
       width: '24%',
-      render: (text: string) => (
-        <div>
-          <strong style={{ color: isDark ? '#f8fafc' : '#1e293b', fontSize: 15 }}>{text}</strong>
+      render: (text: string, record: GrammarNote) => (
+        <div 
+          onClick={() => openStudio(record, false, activeSection === 'review')}
+          style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          <strong style={{ color: isDark ? '#38bdf8' : '#0284c7', fontSize: 15 }}>{text}</strong>
         </div>
       ),
     },
@@ -272,7 +404,7 @@ export const GrammarManager: React.FC = () => {
       title: translate('tableNote', currentLang),
       dataIndex: 'content',
       key: 'content',
-      width: '36%',
+      width: '32%',
       render: (text: string) => (
         <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: isDark ? '#cbd5e1' : '#334155', maxHeight: 150, overflowY: 'auto' }}>
           {text}
@@ -324,9 +456,18 @@ export const GrammarManager: React.FC = () => {
     {
       title: translate('tableActionsGrammar', currentLang),
       key: 'action',
-      width: '6%',
+      width: '10%',
       render: (_: unknown, record: GrammarNote) => (
         <Space size="small">
+          <Button
+            type="primary"
+            size="small"
+            icon={<GraduationCap size={13} />}
+            onClick={() => openStudio(record, false, activeSection === 'review')}
+            style={{ borderRadius: 6, fontWeight: 600, fontSize: 11, height: 26, background: '#0284c7' }}
+          >
+            {translate('grammarPracticeNow', currentLang)}
+          </Button>
           <Button 
             type="text" 
             size="small"
@@ -350,7 +491,7 @@ export const GrammarManager: React.FC = () => {
   return (
     <div style={{ animation: 'fadeIn 0.4s ease' }}>
       {/* Page Title & Add Button */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
         <div>
           <h2 style={{ margin: 0, fontWeight: 800, fontSize: '24px', display: 'flex', alignItems: 'center', gap: 10, color: isDark ? '#f8fafc' : '#0f172a' }}>
             <BookOpen size={24} color="#f43f5e" />
@@ -363,29 +504,109 @@ export const GrammarManager: React.FC = () => {
             {translate('grammarDesc', currentLang)}
           </p>
         </div>
-        <Button 
-          type="primary" 
-          style={{ 
-            height: 32, 
-            padding: '0 14px', 
-            borderRadius: 8, 
-            fontSize: 13, 
-            fontWeight: 600, 
-            background: '#4f46e5', 
-            border: 'none', 
-            boxShadow: '0 2px 6px rgba(79, 70, 229, 0.25)', 
-            display: 'inline-flex', 
-            alignItems: 'center', 
-            gap: 5 
-          }} 
-          icon={<Plus size={14} />} 
-          onClick={() => setIsModalOpen(true)}
-        >
-          {translate('addGrammarTitle', currentLang)}
-        </Button>
+        <Space wrap>
+          <Button 
+            icon={<Sparkles size={14} color="#8b5cf6" />} 
+            onClick={handleSeedDefaultNotes}
+            loading={isSeeding}
+            style={{ borderRadius: 8, fontWeight: 600, height: 32 }}
+          >
+            {currentLang === 'vi' ? 'Nạp cấu trúc mẫu & bài tập ✨' : 'Load Core Rules & Exercises ✨'}
+          </Button>
+          <Button 
+            type="primary" 
+            style={{ 
+              height: 32, 
+              padding: '0 14px', 
+              borderRadius: 8, 
+              fontSize: 13, 
+              fontWeight: 600, 
+              background: '#4f46e5', 
+              border: 'none', 
+              boxShadow: '0 2px 6px rgba(79, 70, 229, 0.25)', 
+              display: 'inline-flex', 
+              alignItems: 'center', 
+              gap: 5 
+            }} 
+            icon={<Plus size={14} />} 
+            onClick={() => setIsModalOpen(true)}
+          >
+            {translate('addGrammarTitle', currentLang)}
+          </Button>
+        </Space>
       </div>
 
+      <nav className="grammar-section-nav" role="tablist" aria-label={currentLang === 'vi' ? 'Các mục ngữ pháp' : 'Grammar sections'}>
+        {([
+          { key: 'topics', icon: <BookOpen size={18} />, vi: 'Học chủ đề', en: 'Topics', detailVi: `${GRAMMAR_TOPIC_CATALOG.length} bài học`, detailEn: `${GRAMMAR_TOPIC_CATALOG.length} lessons` },
+          { key: 'review', icon: <RefreshCw size={18} />, vi: 'Ôn tập', en: 'Review', detailVi: `${new Set([...dueNotes, ...mistakeNotes].map(note => note.id)).size} cần ôn`, detailEn: `${new Set([...dueNotes, ...mistakeNotes].map(note => note.id)).size} to review` },
+          { key: 'notebook', icon: <BookmarkPlus size={18} />, vi: 'Sổ tay', en: 'Notebook', detailVi: `${notes.length} đã lưu`, detailEn: `${notes.length} saved` },
+          { key: 'ai', icon: <Sparkles size={18} />, vi: 'Tra cứu AI', en: 'AI search', detailVi: 'Hỏi về cấu trúc', detailEn: 'Ask about a rule' }
+        ] as const).map(section => {
+          const selected = activeSection === section.key;
+          return (
+            <button
+              key={section.key}
+              type="button"
+              role="tab"
+              id={`grammar-tab-${section.key}`}
+              aria-controls={`grammar-panel-${section.key}`}
+              aria-selected={selected}
+              className="grammar-section-tab"
+              onClick={() => {
+                setActiveSection(section.key);
+                if (section.key === 'review' || section.key === 'notebook') {
+                  setTableSearchText('');
+                  setSelectedTag(null);
+                }
+              }}
+              style={{
+                background: selected ? (isDark ? '#312e81' : '#eef2ff') : (isDark ? '#1e293b' : '#fff'),
+                borderColor: selected ? '#6366f1' : (isDark ? '#334155' : '#e2e8f0'),
+                color: selected ? (isDark ? '#e0e7ff' : '#312e81') : (isDark ? '#e2e8f0' : '#334155')
+              }}
+            >
+              <span className="grammar-section-tab-icon">{section.icon}</span>
+              <span>
+                <strong>{currentLang === 'vi' ? section.vi : section.en}</strong>
+                <small>{currentLang === 'vi' ? section.detailVi : section.detailEn}</small>
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {activeSection === 'review' && (
+        <div>
+        <div className="bento-card" style={{ padding: '16px 20px', marginBottom: 20, border: isDark ? '1px solid #334155' : '1px solid #c7d2fe', background: isDark ? '#1e293b' : '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, color: isDark ? '#e0e7ff' : '#312e81' }}>
+              <GraduationCap size={18} />
+              {currentLang === 'vi' ? 'Ôn tập hôm nay' : "Today's review"}
+            </div>
+            <div style={{ color: isDark ? '#cbd5e1' : '#475569', fontSize: 13, marginTop: 4 }}>
+              {currentLang === 'vi'
+                ? `${dueNotes.length} chủ đề đến hạn · ${mistakeNotes.length} chủ đề có câu sai`
+                : `${dueNotes.length} topics due · ${mistakeNotes.length} topics with mistakes`}
+            </div>
+          </div>
+          <Space wrap>
+            {(mistakeNotes[0] || dueNotes[0]) && (
+              <Button type="primary" icon={<RefreshCw size={15} />} onClick={() => {
+                const target = mistakeNotes[0] || dueNotes[0];
+                openStudio(target, false, true);
+              }}>
+                {currentLang === 'vi' ? 'Bắt đầu ôn tập' : 'Start review'}
+              </Button>
+            )}
+          </Space>
+        </div>
+        </div>
+      )}
+
       {/* AI Grammar Search Hero Box */}
+      {activeSection === 'ai' && (
+      <section role="tabpanel" id="grammar-panel-ai" aria-labelledby="grammar-tab-ai">
       <div
         className="bento-card"
         style={{
@@ -429,7 +650,7 @@ export const GrammarManager: React.FC = () => {
         </Text>
 
         {/* Search Input */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
           <Input
             size="large"
             prefix={<Search size={18} color="#94a3b8" style={{ marginRight: 6 }} />}
@@ -438,7 +659,7 @@ export const GrammarManager: React.FC = () => {
             onChange={(e) => setSearchQuery(e.target.value)}
             onPressEnter={() => handleAISearch()}
             allowClear
-            style={{ borderRadius: 10, fontSize: 14 }}
+            style={{ borderRadius: 10, fontSize: 14, flex: '1 1 220px', minWidth: 0 }}
           />
           <Button
             type="primary"
@@ -531,8 +752,43 @@ export const GrammarManager: React.FC = () => {
                 </div>
               </div>
 
-              {/* Action Buttons: 1-Click Save */}
+              {/* Action Buttons: 1-Click Save & Practice */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Button
+                  type="primary"
+                  icon={<GraduationCap size={15} />}
+                  onClick={async () => {
+                    const pseudoNote: GrammarNote = {
+                      id: crypto.randomUUID(),
+                      title: aiResult.title,
+                      formula: aiResult.formula,
+                      explanation: aiResult.explanation,
+                      notes: aiResult.notes,
+                      example: aiResult.examples.map(ex => ex.vietnamese ? `${ex.english}\n(${ex.vietnamese})` : ex.english).join('\n\n'),
+                      examplesList: aiResult.examples,
+                      tags: aiResult.tags || ['ai-grammar'],
+                      content: `[Công thức]: ${aiResult.formula}\n\n[Cách dùng]: ${aiResult.explanation}`,
+                      exercises: aiResult.exercises,
+                      review_level: 0,
+                      next_review: new Date(),
+                      created_at: new Date()
+                    };
+                    const existing = notes.find(note => note.title.toLowerCase() === aiResult.title.toLowerCase())
+                      || await db.grammar_notes.where('title').equals(aiResult.title).first();
+                    const saved = existing || await handleSaveAIResult(aiResult);
+                    openStudio(saved || pseudoNote);
+                  }}
+                  style={{
+                    borderRadius: 8,
+                    fontWeight: 700,
+                    background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                    border: 'none',
+                    boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)'
+                  }}
+                >
+                  {translate('grammarPracticeNow', currentLang)} 🎯
+                </Button>
+
                 {isSavedInDB(aiResult.title) ? (
                   <Button
                     type="default"
@@ -680,9 +936,25 @@ export const GrammarManager: React.FC = () => {
           </div>
         )}
       </div>
+      </section>
+      )}
 
-      {/* Filter and Table of Saved Grammar */}
+      {/* Filter and Table / Bento Cards of Saved Grammar */}
+      {(activeSection === 'review' || activeSection === 'notebook') && (
+      <section role="tabpanel" id={`grammar-panel-${activeSection}`} aria-labelledby={`grammar-tab-${activeSection}`}>
       <div className="bento-card" style={{ padding: 20 }}>
+        <div style={{ marginBottom: 16 }}>
+          <h3 style={{ margin: 0, fontSize: 18, color: isDark ? '#f8fafc' : '#0f172a' }}>
+            {activeSection === 'review'
+              ? (currentLang === 'vi' ? 'Chủ đề cần ôn' : 'Topics to review')
+              : (currentLang === 'vi' ? 'Sổ tay ngữ pháp' : 'Grammar notebook')}
+          </h3>
+          <p style={{ margin: '4px 0 0', color: isDark ? '#94a3b8' : '#64748b', fontSize: 13 }}>
+            {activeSection === 'review'
+              ? (currentLang === 'vi' ? 'Luyện lại câu đã sai và các chủ đề đến hạn.' : 'Retry mistakes and topics that are due.')
+              : (currentLang === 'vi' ? 'Tìm, sửa và luyện lại những cấu trúc đã lưu.' : 'Find, edit and practice saved grammar rules.')}
+          </p>
+        </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 260 }}>
             <Input
@@ -691,7 +963,7 @@ export const GrammarManager: React.FC = () => {
               value={tableSearchText}
               onChange={(e) => setTableSearchText(e.target.value)}
               allowClear
-              style={{ maxWidth: 360, borderRadius: 8 }}
+              style={{ maxWidth: 320, borderRadius: 8 }}
             />
             {selectedTag && (
               <Tag 
@@ -704,7 +976,7 @@ export const GrammarManager: React.FC = () => {
               </Tag>
             )}
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-              {allTags.slice(0, 6).map(tag => (
+              {allTags.slice(0, 5).map(tag => (
                 <Tag
                   key={tag}
                   onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
@@ -716,14 +988,37 @@ export const GrammarManager: React.FC = () => {
               ))}
             </div>
           </div>
-          <div style={{ fontSize: 13, color: '#64748b' }}>
-            {currentLang === 'vi' 
-              ? `Hiển thị ${filteredNotes.length} / ${notes.length} cấu trúc` 
-              : `Showing ${filteredNotes.length} / ${notes.length} rules`}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <Segmented
+              value={viewMode}
+              onChange={(val) => setViewMode(val as 'cards' | 'table')}
+              options={[
+                { value: 'cards', icon: <LayoutGrid size={13} />, label: translate('grammarViewCards', currentLang) },
+                { value: 'table', icon: <List size={13} />, label: translate('grammarViewTable', currentLang) }
+              ]}
+              style={{ background: isDark ? 'rgba(30, 41, 59, 0.8)' : '#f1f5f9' }}
+            />
+            <div style={{ fontSize: 13, color: '#64748b' }}>
+              {currentLang === 'vi' 
+                ? `${filteredNotes.length} / ${notes.length} cấu trúc` 
+                : `${filteredNotes.length} / ${notes.length} rules`}
+            </div>
           </div>
         </div>
 
-        {filteredNotes.length === 0 ? (
+        {filteredNotes.length === 0 && notes.length > 0 ? (
+          <div style={{ textAlign: 'center', padding: '32px 16px', color: isDark ? '#cbd5e1' : '#475569' }}>
+            <p style={{ margin: '0 0 12px' }}>
+              {activeSection === 'review'
+                ? (currentLang === 'vi' ? 'Hiện chưa có chủ đề nào cần ôn.' : 'No topics need review right now.')
+                : (currentLang === 'vi' ? 'Không tìm thấy chủ đề phù hợp.' : 'No matching topics found.')}
+            </p>
+            <Button onClick={() => { setActiveSection('notebook'); setTableSearchText(''); setSelectedTag(null); }}>
+              {currentLang === 'vi' ? 'Mở sổ tay' : 'Open notebook'}
+            </Button>
+          </div>
+        ) : filteredNotes.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '36px 16px' }}>
             <div style={{
               width: 56,
@@ -742,11 +1037,31 @@ export const GrammarManager: React.FC = () => {
             <div style={{ fontSize: 17, fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', marginBottom: 6 }}>
               {currentLang === 'vi' ? 'Chưa có cấu trúc ngữ pháp nào được lưu' : 'No grammar rules saved yet'}
             </div>
-            <p style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: 13.5, maxWidth: 460, margin: '0 auto 24px auto', lineHeight: 1.5 }}>
+            <p style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: 13.5, maxWidth: 460, margin: '0 auto 16px auto', lineHeight: 1.5 }}>
               {currentLang === 'vi' 
-                ? 'Sử dụng ô Tra cứu AI ở trên hoặc chọn nhanh một chủ đề cốt lõi dưới đây để AI trích xuất công thức và lưu vào sổ tay:'
-                : 'Use the AI search box above or choose a foundational topic below to auto-extract rules and examples:'}
+                ? 'Sử dụng ô Tra cứu AI ở trên hoặc bấm nạp nhanh 4 cấu trúc nền tảng kèm bài tập thực hành dưới đây:'
+                : 'Use the AI search box above or load the 4 foundational grammar rules with exercises below:'}
             </p>
+
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
+              <Button
+                type="primary"
+                size="large"
+                icon={<Sparkles size={16} />}
+                onClick={handleSeedDefaultNotes}
+                loading={isSeeding}
+                style={{
+                  background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                  borderRadius: 12,
+                  height: 44,
+                  fontWeight: 700,
+                  padding: '0 24px',
+                  boxShadow: '0 4px 14px rgba(79, 70, 229, 0.35)'
+                }}
+              >
+                {currentLang === 'vi' ? 'Nạp ngay 4 cấu trúc nền tảng kèm bài tập thực hành ✨' : 'Load 4 Core Rules with Exercises ✨'}
+              </Button>
+            </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12, maxWidth: 880, margin: '0 auto' }}>
               {[
@@ -757,10 +1072,7 @@ export const GrammarManager: React.FC = () => {
               ].map(item => (
                 <div
                   key={item.title}
-                  onClick={() => {
-                    setSearchQuery(item.title);
-                    handleAISearch(item.title);
-                  }}
+                  onClick={() => handleOpenSuggestion(item.title)}
                   className="bento-card-interactive hover-lift"
                   style={{
                     padding: '16px 18px',
@@ -775,12 +1087,201 @@ export const GrammarManager: React.FC = () => {
                     <strong style={{ fontSize: 13.5, color: isDark ? '#f8fafc' : '#0f172a' }}>{item.title}</strong>
                     <Tag color="magenta" style={{ margin: 0, fontSize: 10, borderRadius: 6, fontWeight: 700 }}>#{item.tag}</Tag>
                   </div>
-                  <div style={{ fontSize: 11.5, color: isDark ? '#94a3b8' : '#64748b', fontFamily: 'monospace' }}>
+                  <div style={{ fontSize: 11.5, color: isDark ? '#94a3b8' : '#64748b', fontFamily: 'monospace', marginBottom: 8 }}>
                     {item.desc}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#6366f1', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <GraduationCap size={13} />
+                    {currentLang === 'vi' ? 'Học & Luyện tập ngay ➔' : 'Practice Now ➔'}
                   </div>
                 </div>
               ))}
             </div>
+          </div>
+        ) : viewMode === 'cards' ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: 16 }}>
+            {filteredNotes.map(n => {
+              const exercisesCount = (n.exercises?.multipleChoice?.length || 0) + (n.exercises?.translation?.length || 0);
+              const formulaSnippet = n.formula || (n.content.match(/\[(?:Công thức|Formula)\]:\s*([^\n]+)/i)?.[1]) || '';
+              const explainSnippet = n.explanation || n.content.replace(/\[[^\]]+\]:[^\n]+/g, '').trim().slice(0, 120);
+
+              return (
+                <div
+                  key={n.id}
+                  className="bento-card-interactive hover-lift"
+                  style={{
+                    padding: '20px 22px',
+                    borderRadius: 16,
+                    background: isDark ? 'rgba(30, 41, 59, 0.6)' : '#ffffff',
+                    border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    boxShadow: isDark ? '0 4px 14px rgba(0,0,0,0.25)' : '0 4px 14px rgba(0,0,0,0.03)',
+                    transition: 'all 0.25s ease'
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
+                      <h3 
+                        onClick={() => openStudio(n, false, activeSection === 'review')}
+                        style={{ 
+                          margin: 0, 
+                          fontSize: 16, 
+                          fontWeight: 800, 
+                          color: isDark ? '#f8fafc' : '#0f172a',
+                          cursor: 'pointer',
+                          lineHeight: 1.3
+                        }}
+                      >
+                        {n.title}
+                      </h3>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        {(n.tags || []).slice(0, 2).map(tag => (
+                          <Tag color="magenta" key={tag} style={{ margin: 0, fontSize: 10, borderRadius: 6, fontWeight: 700 }}>
+                            #{tag}
+                          </Tag>
+                        ))}
+                      </div>
+                    </div>
+
+                    {formulaSnippet ? (
+                      <div style={{
+                        background: isDark ? 'rgba(15, 23, 42, 0.7)' : 'rgba(241, 245, 249, 0.8)',
+                        borderRadius: 8,
+                        padding: '8px 12px',
+                        marginBottom: 12,
+                        borderLeft: '3px solid #6366f1',
+                        fontSize: 12.5,
+                        fontFamily: 'monospace',
+                        fontWeight: 600,
+                        color: isDark ? '#c7d2fe' : '#3730a3',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {formulaSnippet}
+                      </div>
+                    ) : null}
+
+                    <div style={{
+                      fontSize: 13,
+                      lineHeight: '1.5',
+                      color: isDark ? '#94a3b8' : '#64748b',
+                      marginBottom: 14,
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden'
+                    }}>
+                      {explainSnippet || n.content}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+                      {getGrammarMistakeCount(n) > 0 && (
+                        <Tag color="orange" style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <RefreshCw size={11} />
+                          {getGrammarMistakeCount(n)} {currentLang === 'vi' ? 'câu cần ôn' : 'to retry'}
+                        </Tag>
+                      )}
+                      {isGrammarReviewDue(n) && (
+                        <Tag color="blue" style={{ margin: 0 }}>{currentLang === 'vi' ? 'Đến hạn ôn' : 'Review due'}</Tag>
+                      )}
+                      {exercisesCount > 0 ? (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          padding: '2px 8px',
+                          borderRadius: 6,
+                          background: 'rgba(99, 102, 241, 0.12)',
+                          color: '#818cf8',
+                          fontSize: 11,
+                          fontWeight: 700
+                        }}>
+                          <Sparkles size={11} />
+                          {exercisesCount} {currentLang === 'vi' ? 'bài tập' : 'exercises'}
+                        </span>
+                      ) : (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          padding: '2px 8px',
+                          borderRadius: 6,
+                          background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9',
+                          color: isDark ? '#94a3b8' : '#64748b',
+                          fontSize: 11,
+                          fontWeight: 600
+                        }}>
+                          {currentLang === 'vi' ? 'AI sẵn sàng tạo bài tập' : 'AI ready'}
+                        </span>
+                      )}
+
+                      {n.example && (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          padding: '2px 8px',
+                          borderRadius: 6,
+                          background: 'rgba(16, 185, 129, 0.12)',
+                          color: '#10b981',
+                          fontSize: 11,
+                          fontWeight: 700
+                        }}>
+                          <Volume2 size={11} />
+                          {currentLang === 'vi' ? 'Ví dụ âm thanh' : 'Audio examples'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    paddingTop: 12,
+                    borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid #f1f5f9'
+                  }}>
+                    <Button
+                      type="primary"
+                      size="small"
+                      icon={<GraduationCap size={14} />}
+                      onClick={() => openStudio(n, false, activeSection === 'review')}
+                      style={{
+                        borderRadius: 8,
+                        fontWeight: 700,
+                        height: 32,
+                        padding: '0 14px',
+                        background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                        boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)'
+                      }}
+                    >
+                      {translate('grammarPracticeNow', currentLang)}
+                    </Button>
+
+                    <Space size={4}>
+                      <Button 
+                        type="text" 
+                        size="small"
+                        icon={<Pencil size={14} color="#6366f1" />} 
+                        onClick={() => openEditModal(n)} 
+                      />
+                      <Popconfirm
+                        title={currentLang === 'vi' ? 'Xác nhận xóa cấu trúc này?' : 'Delete this grammar rule?'}
+                        onConfirm={() => handleDelete(n.id)}
+                        okText={currentLang === 'vi' ? 'Xóa' : 'Delete'}
+                        cancelText={currentLang === 'vi' ? 'Hủy' : 'Cancel'}
+                        okButtonProps={{ danger: true }}
+                      >
+                        <Button type="text" danger size="small" icon={<Trash2 size={14} />} />
+                      </Popconfirm>
+                    </Space>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : (
           <Table 
@@ -792,6 +1293,305 @@ export const GrammarManager: React.FC = () => {
           />
         )}
       </div>
+      </section>
+      )}
+
+      {/* 📚 Core Grammar Topics Library Section */}
+      {activeSection === 'topics' && (
+      <section role="tabpanel" id="grammar-panel-topics" aria-labelledby="grammar-tab-topics">
+      <div 
+        className="bento-card" 
+        style={{ 
+          marginTop: 0, 
+          padding: '24px 26px',
+          border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+          background: isDark 
+            ? 'linear-gradient(180deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.85) 100%)' 
+            : 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+          boxShadow: isDark ? '0 8px 30px rgba(0,0,0,0.3)' : '0 6px 24px rgba(15, 23, 42, 0.05)'
+        }}
+      >
+        {/* Section Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 14, marginBottom: 20 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+              <div style={{
+                width: 38,
+                height: 38,
+                borderRadius: 10,
+                background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)'
+              }}>
+                <GraduationCap size={20} />
+              </div>
+              <h3 style={{ margin: 0, fontWeight: 800, fontSize: 20, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                {translate('grammarCatalogTitle', currentLang)}
+              </h3>
+              <Tag color="indigo" style={{ borderRadius: 12, fontWeight: 700, margin: 0, fontSize: 12 }}>
+                {GRAMMAR_TOPIC_CATALOG.length} {currentLang === 'vi' ? 'chủ đề' : 'topics'}
+              </Tag>
+            </div>
+            <p style={{ margin: 0, color: isDark ? '#94a3b8' : '#64748b', fontSize: 13.5, maxWidth: 680, lineHeight: 1.5 }}>
+              {translate('grammarCatalogDesc', currentLang)}
+            </p>
+          </div>
+
+          {/* Quick search inside catalog */}
+          <div style={{ width: 280, maxWidth: '100%' }}>
+            <Input
+              prefix={<Search size={15} color="#94a3b8" />}
+              placeholder={translate('grammarCatalogSearchPlaceholder', currentLang)}
+              value={catalogSearch}
+              onChange={(e) => setCatalogSearch(e.target.value)}
+              allowClear
+              style={{ borderRadius: 10 }}
+            />
+          </div>
+        </div>
+
+        {/* Category Filter Tabs / Pills */}
+        <div style={{ 
+          display: 'flex', 
+          gap: 8, 
+          overflowX: 'auto', 
+          paddingBottom: 8, 
+          marginBottom: 20,
+          scrollbarWidth: 'thin'
+        }}>
+          {GRAMMAR_CATEGORIES.map(cat => {
+            const isSelected = catalogCategory === cat.id;
+            const count = cat.id === 'all' 
+              ? GRAMMAR_TOPIC_CATALOG.length 
+              : GRAMMAR_TOPIC_CATALOG.filter(t => t.category === cat.id).length;
+
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setCatalogCategory(cat.id)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '7px 14px',
+                  borderRadius: 20,
+                  fontSize: 12.5,
+                  fontWeight: isSelected ? 700 : 500,
+                  background: isSelected 
+                    ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)' 
+                    : (isDark ? 'rgba(30, 41, 59, 0.6)' : '#f1f5f9'),
+                  color: isSelected ? '#ffffff' : (isDark ? '#cbd5e1' : '#475569'),
+                  border: isSelected 
+                    ? '1px solid transparent' 
+                    : (isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0'),
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.2s ease',
+                  boxShadow: isSelected ? '0 2px 8px rgba(99, 102, 241, 0.3)' : 'none'
+                }}
+              >
+                <span>{cat.icon}</span>
+                <span>{currentLang === 'vi' ? cat.nameVi : cat.nameEn}</span>
+                <span style={{ 
+                  fontSize: 11, 
+                  opacity: isSelected ? 0.9 : 0.7, 
+                  background: isSelected ? 'rgba(255,255,255,0.2)' : (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)'),
+                  padding: '1px 6px',
+                  borderRadius: 10
+                }}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Topics Grid */}
+        {filteredCatalogTopics.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '28px 12px', color: isDark ? '#cbd5e1' : '#475569' }}>
+            <p>{currentLang === 'vi' ? 'Không tìm thấy chủ đề phù hợp.' : 'No matching topics found.'}</p>
+            <Button onClick={() => { setCatalogCategory('all'); setCatalogSearch(''); }}>
+              {currentLang === 'vi' ? 'Xóa bộ lọc' : 'Clear filters'}
+            </Button>
+          </div>
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: 16 }}>
+          {filteredCatalogTopics.map(topic => {
+            const isSaved = notes.some(n => n.title.toLowerCase().trim() === topic.title.toLowerCase().trim());
+            const levelColor = topic.level === 'B1' ? 'green' : topic.level === 'B2' ? 'blue' : 'purple';
+
+            return (
+              <div
+                key={topic.id}
+                className="bento-card-interactive hover-lift"
+                style={{
+                  padding: '20px',
+                  borderRadius: 16,
+                  background: isDark ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
+                  border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  boxShadow: isDark ? '0 4px 14px rgba(0,0,0,0.2)' : '0 2px 10px rgba(0,0,0,0.03)',
+                  transition: 'all 0.25s ease'
+                }}
+              >
+                <div>
+                  {/* Top Metadata */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <Tag color={levelColor} style={{ margin: 0, fontWeight: 800, fontSize: 11, borderRadius: 6 }}>
+                        {topic.level}
+                      </Tag>
+                      <Tag color="cyan" style={{ margin: 0, fontSize: 10.5, borderRadius: 6, fontWeight: 600 }}>
+                        #{topic.tags[0]}
+                      </Tag>
+                    </div>
+
+                    {isSaved ? (
+                      <Tag color="success" style={{ margin: 0, fontSize: 11, borderRadius: 6, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Check size={11} /> {currentLang === 'vi' ? 'Đã lưu' : 'Saved'}
+                      </Tag>
+                    ) : null}
+                  </div>
+
+                  {/* Title */}
+                  <h4 
+                    onClick={() => handleSelectCatalogTopic(topic, false)}
+                    style={{ 
+                      margin: '0 0 10px 0', 
+                      fontSize: 16, 
+                      fontWeight: 800, 
+                      color: isDark ? '#f8fafc' : '#0f172a',
+                      cursor: 'pointer',
+                      lineHeight: 1.35
+                    }}
+                  >
+                    {topic.title}
+                  </h4>
+
+                  {/* Formula Box */}
+                  <div style={{
+                    background: isDark ? 'rgba(15, 23, 42, 0.7)' : 'rgba(241, 245, 249, 0.8)',
+                    borderRadius: 8,
+                    padding: '8px 12px',
+                    marginBottom: 12,
+                    borderLeft: '3px solid #6366f1',
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    fontWeight: 600,
+                    color: isDark ? '#c7d2fe' : '#3730a3',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {topic.formula}
+                  </div>
+
+                  {/* Short Explanation */}
+                  <p style={{
+                    fontSize: 13,
+                    lineHeight: '1.5',
+                    color: isDark ? '#94a3b8' : '#64748b',
+                    margin: '0 0 14px 0',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden'
+                  }}>
+                    {topic.explanation}
+                  </p>
+
+                  {/* Exercises & Audio Badges */}
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '2px 8px',
+                      borderRadius: 6,
+                      background: 'rgba(99, 102, 241, 0.12)',
+                      color: '#818cf8',
+                      fontSize: 11,
+                      fontWeight: 700
+                    }}>
+                      <Sparkles size={11} />
+                      {((topic.exercises?.multipleChoice?.length || 0) + (topic.exercises?.translation?.length || 0))} {currentLang === 'vi' ? 'bài tập sẵn có' : 'starter exercises'}
+                    </span>
+
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '2px 8px',
+                      borderRadius: 6,
+                      background: 'rgba(16, 185, 129, 0.12)',
+                      color: '#10b981',
+                      fontSize: 11,
+                      fontWeight: 700
+                    }}>
+                      <Volume2 size={11} />
+                      {topic.examplesList.length} {currentLang === 'vi' ? 'audio ví dụ' : 'audio examples'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Bottom Actions */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(0, 1fr)',
+                  paddingTop: 12,
+                  borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid #f1f5f9',
+                  gap: 8
+                }}>
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<GraduationCap size={14} />}
+                    onClick={() => handleSelectCatalogTopic(topic, false)}
+                    style={{
+                      borderRadius: 8,
+                      fontWeight: 700,
+                      height: 36,
+                      width: '100%',
+                      minWidth: 0,
+                      padding: '0 12px',
+                      background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                      boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)'
+                    }}
+                  >
+                    {currentLang === 'vi' ? 'Học & luyện tập' : 'Study & practice'}
+                  </Button>
+
+                  <Button
+                    size="small"
+                    icon={<Sparkles size={14} />}
+                    onClick={() => handleSelectCatalogTopic(topic, true)}
+                    style={{
+                      borderRadius: 8,
+                      fontWeight: 600,
+                      height: 36,
+                      width: '100%',
+                      minWidth: 0,
+                      padding: '0 10px',
+                      borderColor: '#a78bfa',
+                      color: isDark ? '#c4b5fd' : '#6d28d9'
+                    }}
+                  >
+                    {currentLang === 'vi' ? 'Tạo bài tập bằng AI' : 'Generate AI exercises'}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      </section>
+      )}
+
 
       {/* Modal: Add Grammar Note (With AI Auto-Fill button) */}
       <Modal
@@ -879,6 +1679,21 @@ export const GrammarManager: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* Grammar Studio & Practice Modal */}
+      <GrammarStudioModal
+        open={isStudioOpen}
+        note={selectedStudioNote}
+        autoOpenGenerator={studioAutoOpenGenerator}
+        onClose={() => {
+          setIsStudioOpen(false);
+          setSelectedStudioNote(null);
+          setStudioAutoOpenGenerator(false);
+        }}
+        onNoteUpdated={(upd) => setSelectedStudioNote(upd)}
+        reviewMistakesOnly={studioReviewMistakesOnly}
+        initialTab={studioReviewMistakesOnly ? 'quiz' : 'theory'}
+      />
     </div>
   );
 };

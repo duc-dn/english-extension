@@ -94,7 +94,7 @@ async function setupProxyHeaderRules() {
   if (typeof chrome !== 'undefined' && chrome.declarativeNetRequest) {
     try {
       await chrome.declarativeNetRequest.updateDynamicRules({
-        removeRuleIds: [9655],
+        removeRuleIds: [9655, 9656],
         addRules: [
           {
             id: 9655,
@@ -112,6 +112,25 @@ async function setupProxyHeaderRules() {
                 chrome.declarativeNetRequest.ResourceType.XMLHTTPREQUEST,
                 chrome.declarativeNetRequest.ResourceType.OTHER
               ]
+            }
+          },
+          {
+            // Chrome omits Referer on iframe requests from extension pages.
+            // YouTube requires an embedder identity (otherwise Error 153).
+            id: 9656,
+            priority: 1,
+            action: {
+              type: chrome.declarativeNetRequest.RuleActionType.MODIFY_HEADERS,
+              requestHeaders: [{
+                header: 'referer',
+                operation: chrome.declarativeNetRequest.HeaderOperation.SET,
+                value: `https://english-extension.${chrome.runtime.id}/`
+              }]
+            },
+            condition: {
+              initiatorDomains: [chrome.runtime.id],
+              requestDomains: ['www.youtube-nocookie.com', 'www.youtube.com'],
+              resourceTypes: [chrome.declarativeNetRequest.ResourceType.SUB_FRAME]
             }
           }
         ]

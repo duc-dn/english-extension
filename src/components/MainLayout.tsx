@@ -4,7 +4,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { 
   BookMarked, Layers, LayoutDashboard, Settings, BookOpen, 
   CheckSquare, ListTodo, Globe, Timer, Sun, Moon, Sparkles, ChevronRight,
-  BarChart3, PanelLeftClose, PanelLeftOpen
+  BarChart3, PanelLeftClose, PanelLeftOpen, Headphones
 } from 'lucide-react';
 import { useSettings, saveSettings } from '../lib/settings';
 import { translate } from '../lib/localization';
@@ -96,6 +96,13 @@ export const MainLayout: React.FC = () => {
           label: translate('quizzes', currentLang),
           badge: 'Quiz',
           badgeVariant: 'emerald'
+        },
+        { 
+          key: '/listening', 
+          icon: <Headphones size={17} />, 
+          label: translate('listeningNav', currentLang),
+          badge: 'Audio',
+          badgeVariant: 'sky'
         },
       ]
     },

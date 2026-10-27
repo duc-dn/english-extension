@@ -1,4 +1,4 @@
-export const playAudio = (text: string) => {
+export const playAudio = (text: string, rate: number = 0.9, lang: string = 'en-US') => {
   if (!window.speechSynthesis) {
     console.warn("Speech Synthesis API not supported in this browser.");
     return;
@@ -8,8 +8,8 @@ export const playAudio = (text: string) => {
   window.speechSynthesis.cancel();
   
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'en-US'; // Default to US English
-  utterance.rate = 0.9; // Slightly slower for clear pronunciation
+  utterance.lang = lang;
+  utterance.rate = rate;
   
   window.speechSynthesis.speak(utterance);
 };

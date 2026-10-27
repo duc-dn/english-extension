@@ -3,6 +3,7 @@ import { message } from 'antd';
 import { chatGPTResponse } from './chatgptCompanion';
 import { hasRuntimeError } from './extensionContext';
 import { callAntigravity } from './antigravity';
+import type { GrammarExerciseMultipleChoice, GrammarExerciseTranslation, GrammarExerciseSet } from './db';
 
 export interface TranslationResult {
   word: string;
@@ -1180,6 +1181,7 @@ export interface AIGrammarExplanation {
   }[];
   notes?: string;
   tags: string[];
+  exercises?: GrammarExerciseSet;
 }
 
 /**
@@ -1214,12 +1216,62 @@ Hãy phân tích toàn diện, chính xác và trả về DUY NHẤT một đố
     }
   ],
   "notes": "Lưu ý quan trọng, các biến thể đặc biệt, dạng đảo ngữ hoặc các bẫy trắc nghiệm hay gặp bằng tiếng Việt",
-  "tags": ["danh sách 2-4 tags phân loại viết bằng tiếng Anh không dấu, ví dụ: conditional, advanced, past-unreal"]
+  "tags": ["danh sách 2-4 tags phân loại viết bằng tiếng Anh không dấu, ví dụ: conditional, advanced, past-unreal"],
+  "exercises": {
+    "multipleChoice": [
+      {
+        "question": "Câu bài tập trắc nghiệm có chỗ trống...",
+        "options": ["phương án A", "phương án B", "phương án C", "phương án D"],
+        "correctAnswer": 0,
+        "explanation": "Giải thích chi tiết tại sao phương án này đúng bằng tiếng Việt"
+      },
+      {
+        "question": "Câu bài tập trắc nghiệm 2...",
+        "options": ["A", "B", "C", "D"],
+        "correctAnswer": 1,
+        "explanation": "Giải thích chi tiết 2..."
+      }
+    ],
+    "translation": [
+      {
+        "vietnamese": "Câu tiếng Việt tự nhiên đòi hỏi áp dụng cấu trúc này...",
+        "hint": "Gợi ý từ vựng / cấu trúc quan trọng",
+        "suggestedEnglish": "Câu dịch tiếng Anh chuẩn xác tự nhiên",
+        "targetGrammarPoint": "Điểm ngữ pháp mục tiêu"
+      },
+      {
+        "vietnamese": "Câu tiếng Việt 2...",
+        "hint": "Gợi ý...",
+        "suggestedEnglish": "Câu dịch 2...",
+        "targetGrammarPoint": "Cấu trúc mục tiêu"
+      }
+    ]
+  }
 }`;
 
   const raw = await callAI([{ role: 'user', content: prompt }], true, settings);
   const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
   const parsed = JSON.parse(cleaned);
+
+  const multipleChoice: GrammarExerciseMultipleChoice[] = Array.isArray(parsed.exercises?.multipleChoice)
+    ? parsed.exercises.multipleChoice.map((q: any) => ({
+        id: crypto.randomUUID(),
+        question: String(q.question || '').trim(),
+        options: Array.isArray(q.options) ? q.options.map((o: any) => String(o)) : [],
+        correctAnswer: typeof q.correctAnswer === 'number' ? q.correctAnswer : 0,
+        explanation: String(q.explanation || '').trim()
+      })).filter((q: GrammarExerciseMultipleChoice) => q.question && q.options.length >= 2)
+    : [];
+
+  const translation: GrammarExerciseTranslation[] = Array.isArray(parsed.exercises?.translation)
+    ? parsed.exercises.translation.map((t: any) => ({
+        id: crypto.randomUUID(),
+        vietnamese: String(t.vietnamese || '').trim(),
+        hint: t.hint ? String(t.hint).trim() : undefined,
+        suggestedEnglish: String(t.suggestedEnglish || '').trim(),
+        targetGrammarPoint: t.targetGrammarPoint ? String(t.targetGrammarPoint).trim() : parsed.title || query
+      })).filter((t: GrammarExerciseTranslation) => t.vietnamese && t.suggestedEnglish)
+    : [];
 
   return {
     title: parsed.title || query,
@@ -1229,8 +1281,188 @@ Hãy phân tích toàn diện, chính xác và trả về DUY NHẤT một đố
       ? parsed.examples
       : [{ english: parsed.example || '', vietnamese: '' }],
     notes: parsed.notes || '',
-    tags: Array.isArray(parsed.tags) ? parsed.tags : []
+    tags: Array.isArray(parsed.tags) ? parsed.tags : [],
+    exercises: { multipleChoice, translation }
   };
+}
+
+export interface GenerateGrammarExerciseOptions {
+  multipleChoiceCount?: number;
+  translationCount?: number;
+  difficulty?: 'basic' | 'intermediate' | 'advanced' | 'exam_traps';
+}
+
+/**
+ * Sinh thêm bộ bài tập thực hành ngữ pháp (trắc nghiệm + dịch câu) bằng AI với tùy chỉnh số lượng
+ */
+export async function generateGrammarExercisesWithAI(
+  title: string,
+  formula?: string,
+  explanation?: string,
+  customSettings?: Partial<Settings>,
+  options?: GenerateGrammarExerciseOptions
+): Promise<GrammarExerciseSet> {
+  const currentSettings = await getSettings();
+  const settings = { ...currentSettings, ...customSettings };
+  if (!settings.ai_provider || settings.ai_provider === 'none') {
+    throw new Error(settings.language === 'en'
+      ? 'Please enable an AI provider or turn on DeepSeek Local Proxy to generate grammar exercises.'
+      : 'Vui lòng bật AI Provider hoặc bật DeepSeek Local Proxy để sinh thêm bài tập ngữ pháp.');
+  }
+
+  const mcCount = Math.max(0, Math.min(20, options?.multipleChoiceCount !== undefined ? options.multipleChoiceCount : 3));
+  const transCount = Math.max(0, Math.min(15, options?.translationCount !== undefined ? options.translationCount : 2));
+  const difficulty = options?.difficulty || 'intermediate';
+
+  let diffInstruction = '';
+  if (difficulty === 'basic') {
+    diffInstruction = '- Mức độ: CƠ BẢN (B1). Câu ngắn gọn, từ vựng thông dụng quen thuộc, bám sát công thức chuẩn.';
+  } else if (difficulty === 'advanced') {
+    diffInstruction = '- Mức độ: NÂNG CAO (C1/IELTS 7.0+). Ngữ cảnh học thuật, bài báo quốc tế, sử dụng cấu trúc kết hợp phức tạp.';
+  } else if (difficulty === 'exam_traps') {
+    diffInstruction = '- Mức độ: BẪY ĐỀ THI (TOEIC/IELTS/THPTQG). Thiết kế các phương án nhiễu tinh vi đánh trúng vào lỗi hay nhầm lẫn của thí sinh.';
+  } else {
+    diffInstruction = '- Mức độ: TRUNG CẤP (B2). Ngữ cảnh giao tiếp và làm việc chuyên nghiệp, câu tự nhiên và thực tế.';
+  }
+
+  const prompt = `Bạn là một chuyên gia khảo thí và giáo viên tiếng Anh hàng đầu.
+Hãy thiết kế bộ bài tập thực hành phản xạ chất lượng cao cho cấu trúc ngữ pháp sau:
+- Tên cấu trúc: "${title}"
+${formula ? `- Công thức chuẩn: "${formula}"` : ''}
+${explanation ? `- Giải thích: "${explanation}"` : ''}
+${diffInstruction}
+
+Yêu cầu số lượng câu:
+${mcCount > 0 ? `1. Chính xác ${mcCount} câu hỏi trắc nghiệm (multipleChoice): điền vào chỗ trống hoặc chọn dạng đúng của động từ/mệnh đề. Mỗi câu có 4 đáp án (options), correctAnswer là index từ 0 đến 3, và explanation giải thích cặn kẽ tại sao đúng/sai bằng tiếng Việt.` : 'Không cần tạo câu trắc nghiệm (để mảng multipleChoice rỗng []).'}
+${transCount > 0 ? `2. Chính xác ${transCount} bài tập dịch Việt -> Anh (translation): đưa ra câu tiếng Việt giao tiếp/công việc tự nhiên cần áp dụng cấu trúc trên, kèm gợi ý (hint) và câu tiếng Anh mẫu chuẩn bản xứ (suggestedEnglish).` : 'Không cần tạo bài tập dịch câu (để mảng translation rỗng []).'}
+
+Tránh lặp lại những câu hỏi sáo rỗng. Đảm bảo câu hỏi có tính thực tế và tính ứng dụng cao.
+Trả về DUY NHẤT một đối tượng JSON hợp lệ (không chứa markdown \`\`\`json hay bất kỳ văn bản giải thích nào bên ngoài):
+{
+  "multipleChoice": [
+    ${mcCount > 0 ? `{
+      "question": "Câu trắc nghiệm...",
+      "options": ["Đáp án A", "Đáp án B", "Đáp án C", "Đáp án D"],
+      "correctAnswer": 0,
+      "explanation": "Giải thích chi tiết vì sao chọn đáp án này..."
+    }` : ''}
+  ],
+  "translation": [
+    ${transCount > 0 ? `{
+      "vietnamese": "Câu tiếng Việt tự nhiên...",
+      "hint": "Gợi ý từ vựng / cấu trúc",
+      "suggestedEnglish": "Câu tiếng Anh chuẩn bản xứ",
+      "targetGrammarPoint": "${title}"
+    }` : ''}
+  ]
+}`;
+
+  const raw = await callAI([{ role: 'user', content: prompt }], true, settings);
+  const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const parsed = JSON.parse(cleaned);
+
+  const multipleChoice: GrammarExerciseMultipleChoice[] = Array.isArray(parsed.multipleChoice)
+    ? parsed.multipleChoice.map((q: any) => ({
+        id: crypto.randomUUID(),
+        question: String(q.question || '').trim(),
+        options: Array.isArray(q.options) ? q.options.map((o: any) => String(o)) : [],
+        correctAnswer: typeof q.correctAnswer === 'number' ? q.correctAnswer : 0,
+        explanation: String(q.explanation || '').trim()
+      })).filter((q: GrammarExerciseMultipleChoice) => q.question && q.options.length >= 2)
+    : [];
+
+  const translation: GrammarExerciseTranslation[] = Array.isArray(parsed.translation)
+    ? parsed.translation.map((t: any) => ({
+        id: crypto.randomUUID(),
+        vietnamese: String(t.vietnamese || '').trim(),
+        hint: t.hint ? String(t.hint).trim() : undefined,
+        suggestedEnglish: String(t.suggestedEnglish || '').trim(),
+        targetGrammarPoint: t.targetGrammarPoint ? String(t.targetGrammarPoint).trim() : title
+      })).filter((t: GrammarExerciseTranslation) => t.vietnamese && t.suggestedEnglish)
+    : [];
+
+  return { multipleChoice, translation };
+}
+
+export interface GrammarTranslationEvaluation {
+  isCorrect: boolean;
+  score: number;
+  grammarFeedback: string;
+  strengths: string;
+  improvements: string;
+  improvedSentence: string;
+  alternativeExpressions?: string[];
+}
+
+/**
+ * Chấm điểm và phân tích chi tiết câu dịch tiếng Anh của học viên
+ */
+export async function evaluateGrammarTranslationWithAI(params: {
+  grammarTitle: string;
+  formula?: string;
+  vietnamesePrompt: string;
+  userSentence: string;
+  suggestedEnglish?: string;
+  customSettings?: Partial<Settings>;
+}): Promise<GrammarTranslationEvaluation> {
+  const currentSettings = await getSettings();
+  const settings = { ...currentSettings, ...params.customSettings };
+  if (!settings.ai_provider || settings.ai_provider === 'none') {
+    return {
+      isCorrect: true,
+      score: 85,
+      grammarFeedback: 'Bạn đã hoàn thành câu viết! (Hãy bật AI Provider hoặc DeepSeek Local Proxy để nhận chấm điểm và chữa bài chi tiết).',
+      strengths: 'Bạn đã nỗ lực hoàn thành câu dịch.',
+      improvements: 'Bật AI Provider để xem phân tích chi tiết.',
+      improvedSentence: params.suggestedEnglish || params.userSentence
+    };
+  }
+
+  const prompt = `Bạn là một chuyên gia khảo thí và giáo viên ngữ pháp tiếng Anh bản xứ.
+Học viên đang làm bài tập dịch câu tiếng Việt sang tiếng Anh nhằm áp dụng cấu trúc ngữ pháp:
+- Cấu trúc mục tiêu: "${params.grammarTitle}"
+${params.formula ? `- Công thức chuẩn: "${params.formula}"` : ''}
+- Câu tiếng Việt gốc cần dịch: "${params.vietnamesePrompt}"
+${params.suggestedEnglish ? `- Câu tiếng Anh mẫu tham khảo: "${params.suggestedEnglish}"` : ''}
+- Câu do học viên tự viết: "${params.userSentence}"
+
+Hãy đánh giá kỹ lưỡng, chấm điểm công tâm và hỗ trợ học viên tiến bộ.
+Trả về DUY NHẤT một đối tượng JSON hợp lệ (không markdown \`\`\`json hay text thừa bên ngoài):
+{
+  "isCorrect": true/false (true nếu đạt từ 80 điểm trở lên và áp dụng đúng cấu trúc ngữ pháp mục tiêu),
+  "score": số điểm từ 0 đến 100 dựa trên độ chính xác ngữ pháp, từ vựng và cấu trúc mục tiêu,
+  "grammarFeedback": "Nhận xét tổng quát bằng tiếng Việt về việc học viên đã áp dụng đúng cấu trúc ngữ pháp mục tiêu chưa",
+  "strengths": "Điểm học viên làm tốt (chia thì, dùng từ, trật tự từ...)",
+  "improvements": "Những điểm cần sửa đổi hoặc lưu ý ngữ pháp/từ vựng (nếu có)",
+  "improvedSentence": "Câu viết hoàn chỉnh, chuẩn ngữ pháp và phong cách tự nhiên nhất của người bản xứ",
+  "alternativeExpressions": ["1-2 cách viết khác tự nhiên tương đương"]
+}`;
+
+  try {
+    const raw = await callAI([{ role: 'user', content: prompt }], true, settings);
+    const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+
+    return {
+      isCorrect: typeof parsed.isCorrect === 'boolean' ? parsed.isCorrect : (parsed.score >= 80),
+      score: typeof parsed.score === 'number' ? Math.max(0, Math.min(100, parsed.score)) : 80,
+      grammarFeedback: parsed.grammarFeedback || 'Câu dịch của bạn rất tốt!',
+      strengths: parsed.strengths || 'Áp dụng tốt cấu trúc câu.',
+      improvements: parsed.improvements || 'Không có lỗi nghiêm trọng.',
+      improvedSentence: parsed.improvedSentence || params.suggestedEnglish || params.userSentence,
+      alternativeExpressions: Array.isArray(parsed.alternativeExpressions) ? parsed.alternativeExpressions : []
+    };
+  } catch (err) {
+    console.error("AI Grammar Translation Evaluation failed:", err);
+    return {
+      isCorrect: true,
+      score: 80,
+      grammarFeedback: 'Đã ghi nhận câu dịch của bạn.',
+      strengths: 'Đã hoàn thành câu.',
+      improvements: 'Chưa thể phân tích lỗi chi tiết do lỗi kết nối AI.',
+      improvedSentence: params.suggestedEnglish || params.userSentence
+    };
+  }
 }
 
 export interface AIGeneratedWord {
@@ -1492,6 +1724,55 @@ Hãy trả về DUY NHẤT một đối tượng JSON hợp lệ theo cấu trú
   }
 }
 
+export interface AIListeningSentence {
+  english: string;
+  vietnamese: string;
+  level: string;
+  phoneticNotes?: string;
+}
 
+/**
+ * Sinh các câu luyện nghe (Dictation / Audio Puzzle) tự nhiên theo chủ đề và trình độ bằng AI
+ */
+export async function generateListeningSentencesWithAI(
+  topic: string,
+  level: string = 'B1',
+  count: number = 5,
+  customSettings?: Partial<Settings>
+): Promise<AIListeningSentence[]> {
+  const currentSettings = await getSettings();
+  const settings = { ...currentSettings, ...customSettings };
+  if (!settings.ai_provider || settings.ai_provider === 'none') {
+    throw new Error(settings.language === 'en'
+      ? 'Please enable an AI provider or turn on DeepSeek Local Proxy to generate listening sentences.'
+      : 'Vui lòng bật AI Provider hoặc bật DeepSeek Local Proxy để sinh câu luyện nghe.');
+  }
 
+  const prompt = `Bạn là một chuyên gia ngữ âm và giáo viên luyện nghe tiếng Anh hàng đầu.
+Hãy tạo ${count} câu tiếng Anh tự nhiên, thực tế và hay gặp nhất thuộc chủ đề: "${topic}" với trình độ ${level}.
+Mỗi câu nên có độ dài vừa phải (khoảng 6 đến 16 từ), phù hợp cho việc luyện nghe chép chính tả (Dictation) và nhận diện nối âm/nuốt âm.
 
+Trả về DUY NHẤT một đối tượng JSON hợp lệ (không markdown \`\`\`json hay văn bản thừa bên ngoài):
+{
+  "sentences": [
+    {
+      "english": "Câu tiếng Anh chuẩn tự nhiên...",
+      "vietnamese": "Dịch nghĩa tiếng Việt chuẩn xác...",
+      "level": "${level}",
+      "phoneticNotes": "Lưu ý ngắn về nối âm, nuốt âm hoặc trọng âm (ví dụ: Nối âm /tʃek ɪt/)"
+    }
+  ]
+}`;
+
+  const raw = await callAI([{ role: 'user', content: prompt }], true, settings);
+  const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const parsed = JSON.parse(cleaned);
+
+  const list = Array.isArray(parsed.sentences) ? parsed.sentences : [];
+  return list.map((s: any) => ({
+    english: String(s.english || '').trim(),
+    vietnamese: String(s.vietnamese || '').trim(),
+    level: String(s.level || level).trim(),
+    phoneticNotes: s.phoneticNotes ? String(s.phoneticNotes).trim() : undefined
+  })).filter((s: AIListeningSentence) => s.english);
+}
